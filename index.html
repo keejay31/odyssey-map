@@ -34,12 +34,13 @@
   --muted:#a89a7c;
 }
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;height:100%;}
+html,body{margin:0;padding:0;height:100%;height:100dvh;}
 body{
   background:radial-gradient(ellipse at 50% -10%, #261c11 0%, var(--ink) 55%);
   color:var(--papyrus);
   font-family:'PT Serif', Georgia, serif;
   height:100%;
+  height:100dvh;
   overflow:hidden;
 }
 ::selection{background:var(--gold);color:var(--ink);}
@@ -48,6 +49,7 @@ button:focus-visible, .chip:focus-visible{outline:2px solid var(--gold);outline-
 
 #app{
   height:100%;
+  height:100dvh;
   margin:0 auto;
   padding:clamp(14px,2vh,26px) clamp(16px,3vw,44px) clamp(10px,1.6vh,20px);
   display:flex;
@@ -107,11 +109,13 @@ h1{
   text-align:center;
   background:radial-gradient(ellipse at 50% 42%, #2b2013 0%, #16110d 72%);
   opacity:0;
-  transition:opacity .6s ease;
+  transition:opacity .9s ease;
   cursor:pointer;
+  overflow:hidden;
 }
 #splash.show{opacity:1;}
-#splash .splash-inner{max-width:540px;}
+#splash .splash-inner{max-width:540px; transition:opacity .3s ease, transform .3s ease;}
+#splash.dismissing .splash-inner{opacity:0; transform:scale(.97);}
 #splash .splash-eyebrow{
   font-family:'PT Sans',sans-serif;
   letter-spacing:.4em;
@@ -137,6 +141,38 @@ h1{
   margin:0 0 10px;
 }
 #splash p:last-of-type{margin-bottom:0;color:var(--sand);}
+#splash .splash-hint{
+  margin-top:26px;
+  font-family:'PT Sans',sans-serif;
+  font-size:11px;
+  letter-spacing:.2em;
+  text-transform:uppercase;
+  color:var(--muted);
+  animation:splashPulse 2.2s ease-in-out infinite;
+}
+@keyframes splashPulse{
+  0%,100%{opacity:.45;}
+  50%{opacity:1;}
+}
+.shatter-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;}
+.shard{
+  position:absolute;
+  font-family:'Yeseva One',serif;
+  line-height:1;
+  opacity:1;
+  pointer-events:none;
+  transform:translate(0,0) rotate(0deg) scale(1);
+  transition:transform .85s cubic-bezier(.22,.68,.32,1), opacity .75s ease;
+  text-shadow:0 0 10px rgba(201,162,39,.45);
+}
+.shard.fly{
+  transform:translate(var(--dx),var(--dy)) rotate(var(--rot)) scale(.25);
+  opacity:0;
+}
+@media (prefers-reduced-motion: reduce){
+  #splash, #splash .splash-inner, .shard{transition-duration:.2s;}
+  .shard{display:none;}
+}
 
 #chapterTabs{
   display:flex;
@@ -224,6 +260,16 @@ main{
 }
 svg#graph{width:100%;height:100%;display:block;}
 .node circle{fill:var(--ink);stroke-width:2.4px;transition:stroke-width .15s;}
+.node text.monogram{
+  font-family:'Yeseva One', serif;
+  font-weight:400;
+  text-anchor:middle;
+  pointer-events:none;
+  paint-order:stroke;
+  stroke:var(--ink);
+  stroke-width:1.5px;
+  stroke-linejoin:round;
+}
 .node text.label{
   font-family:'PT Sans',sans-serif;
   font-size:10.5px;
@@ -456,6 +502,7 @@ footer button:disabled{opacity:.3;cursor:default;}
     <div class="meander-divider splash-meander"></div>
     <p>Пред тобою не свиток и не море, а карта хитросплетений — боги и смертные, любовь и вражда, дом и чужбина, сплетённые в двадцати четырёх песнях.</p>
     <p>Да будет твой путь домой короче, чем у Одиссея.</p>
+    <div class="splash-hint">Коснитесь, чтобы войти</div>
   </div>
 </div>
 <script>
@@ -479,14 +526,72 @@ footer button:disabled{opacity:.3;cursor:default;}
   requestAnimationFrame(function(){
     requestAnimationFrame(function(){ el.classList.add('show'); });
   });
-  function dismiss(){
+
+  var GREEK = 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ'.split('');
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function shatter(cx, cy){
+    if(reduceMotion) return; // без анимации — просто уйдёт по общему fade
+    var w = window.innerWidth, h = window.innerHeight;
+    var cols = w < 560 ? 8 : 12, rows = w < 560 ? 10 : 7;
+    var cw = w/cols, ch = h/rows;
+    var layer = document.createElement('div');
+    layer.className = 'shatter-layer';
+    var frag = document.createDocumentFragment();
+    var shards = [];
+    var maxDist = 1;
+    for(var r=0;r<rows;r++){
+      for(var c=0;c<cols;c++){
+        var x = c*cw + cw/2 + (Math.random()-0.5)*cw*0.5;
+        var y = r*ch + ch/2 + (Math.random()-0.5)*ch*0.5;
+        var s = document.createElement('div');
+        s.className = 'shard';
+        s.textContent = GREEK[(Math.random()*GREEK.length)|0];
+        s.style.left = x+'px';
+        s.style.top = y+'px';
+        s.style.fontSize = (14+Math.random()*24)+'px';
+        s.style.color = Math.random()<0.55 ? 'var(--gold)' : 'var(--papyrus)';
+        var dist = Math.hypot(x-cx, y-cy);
+        if(dist>maxDist) maxDist = dist;
+        var angle = Math.atan2(y-cy, x-cx) + (Math.random()-0.5)*0.7;
+        var travel = 140 + Math.random()*300;
+        s.style.setProperty('--dx', (Math.cos(angle)*travel)+'px');
+        s.style.setProperty('--dy', (Math.sin(angle)*travel)+'px');
+        s.style.setProperty('--rot', ((Math.random()-0.5)*280)+'deg');
+        shards.push({el:s, dist:dist});
+        frag.appendChild(s);
+      }
+    }
+    layer.appendChild(frag);
+    el.appendChild(layer);
+    void layer.offsetWidth; // форсируем отрисовку исходного положения
+    shards.forEach(function(s){
+      s.el.style.transitionDelay = ((s.dist/maxDist)*220)+'ms';
+    });
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        shards.forEach(function(s){ s.el.classList.add('fly'); });
+      });
+    });
+  }
+
+  function dismiss(ev){
     if(el.dataset.gone) return;
     el.dataset.gone = '1';
+    var cx = (ev && ev.clientX) || window.innerWidth/2;
+    var cy = (ev && ev.clientY) || window.innerHeight/2;
+    el.classList.add('dismissing');
     el.classList.remove('show');
-    setTimeout(function(){ el.remove(); }, 650);
+    shatter(cx, cy);
+    setTimeout(function(){ el.remove(); }, reduceMotion ? 700 : 1150);
   }
   el.addEventListener('click', dismiss);
-  setTimeout(dismiss, 2000);
+  window.addEventListener('keydown', function onKey(ev){
+    if(ev.key==='Enter' || ev.key===' ' || ev.key==='Escape'){
+      dismiss();
+      window.removeEventListener('keydown', onKey);
+    }
+  });
 })();
 </script>
 <div id="app">
@@ -773,19 +878,30 @@ function hasNotes(id){
   return !!(n && ((n.axiom && n.axiom.trim()) || (n.notes && n.notes.trim())));
 }
 
+const LS_PREFIX = 'odymap:';
+
 async function storageGetJSON(key){
   try{
-    if(!window.storage) return null;
-    const r = await window.storage.get(key);
-    return r && r.value ? JSON.parse(r.value) : null;
-  }catch(e){ return null; } // отсутствующий ключ бросает исключение — это ожидаемо
+    if(window.storage){
+      const r = await window.storage.get(key);
+      if(r && r.value) return JSON.parse(r.value);
+    }
+  }catch(e){} // ключа нет в window.storage — пробуем localStorage ниже
+  try{
+    const raw = localStorage.getItem(LS_PREFIX+key);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
 }
 async function storageSetJSON(key, obj){
+  let ok = false;
   try{
-    if(!window.storage) return false;
-    await window.storage.set(key, JSON.stringify(obj));
-    return true;
-  }catch(e){ return false; }
+    if(window.storage){ await window.storage.set(key, JSON.stringify(obj)); ok = true; }
+  }catch(e){}
+  try{
+    localStorage.setItem(LS_PREFIX+key, JSON.stringify(obj));
+    ok = true;
+  }catch(e){}
+  return ok;
 }
 async function loadNotes(){
   charNotes = (await storageGetJSON('charNotes')) || {};
@@ -994,6 +1110,17 @@ function onResize(){
   }, 120);
 }
 window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', ()=>{
+  // на телефонах после поворота размеры контейнера иногда «устаканиваются» не сразу —
+  // перепроверяем несколько раз в течение полусекунды
+  onResize();
+  setTimeout(onResize, 200);
+  setTimeout(onResize, 450);
+  setTimeout(onResize, 700);
+});
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', onResize);
+}
 if(window.ResizeObserver){
   new ResizeObserver(onResize).observe(graphWrapEl);
 }
@@ -1117,6 +1244,10 @@ function render(){
           })
           .call(dragBehavior(simulation));
         g.append('circle').attr('r', d=>nodeRadius(d));
+        g.append('text').attr('class','monogram')
+          .attr('dy','0.32em')
+          .style('fill', d=>CATS[d.cat].color)
+          .text(d=> (d.name||'?').trim().charAt(0).toUpperCase());
         g.append('text').attr('class','label').attr('dy', d=>nodeRadius(d)+13).text(d=>d.name);
         const badge = g.append('g').attr('class','note-badge-group');
         badge.append('circle').attr('class','note-badge-bg').attr('r',6.5);
@@ -1129,6 +1260,7 @@ function render(){
     );
 
   nodeJoin.select('circle').attr('r', d=>nodeRadius(d));
+  nodeJoin.select('text.monogram').style('font-size', d=> (nodeRadius(d)*1.08)+'px');
   nodeJoin.select('text.label').attr('dy', d=>nodeRadius(d)+13);
   nodeJoin.select('g.note-badge-group')
     .attr('transform', d=> `translate(${nodeRadius(d)*0.68},${-nodeRadius(d)*0.68})`)
