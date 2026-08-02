@@ -154,6 +154,35 @@ h1{
   0%,100%{opacity:.45;}
   50%{opacity:1;}
 }
+#splash .splash-version{
+  margin-top:30px;
+  padding-top:14px;
+  border-top:1px solid rgba(255,255,255,.08);
+  font-family:'PT Sans',sans-serif;
+  font-size:10.5px;
+  letter-spacing:.03em;
+  color:var(--muted);
+  opacity:.7;
+}
+#splash .splash-changelog{
+  list-style:none;
+  margin:8px 0 0;
+  padding:0;
+  text-align:left;
+  display:inline-block;
+}
+#splash .splash-changelog li{
+  margin:3px 0;
+  padding-left:13px;
+  position:relative;
+  line-height:1.4;
+}
+#splash .splash-changelog li::before{
+  content:"—";
+  position:absolute;
+  left:0;
+  opacity:.6;
+}
 .shatter-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;}
 .shard{
   position:absolute;
@@ -282,7 +311,7 @@ svg#graph{width:100%;height:100%;display:block;}
 }
 .node{cursor:pointer;}
 .node.dim{opacity:.10;}
-.node.active circle{stroke-width:5px;filter:drop-shadow(0 0 4px rgba(255,255,255,.65)) drop-shadow(0 0 11px rgba(201,162,39,.95));}
+.node.active circle{stroke-width:5px;filter:url(#nodeGlow);}
 
 .node.god circle{stroke:var(--gold);}
 .node.family circle{stroke:var(--clay);}
@@ -295,7 +324,7 @@ svg#graph{width:100%;height:100%;display:block;}
 
 .link{fill:none;stroke-width:1.6px;transition:opacity .15s;}
 .link.dim{opacity:.05;}
-.link.focus{opacity:1!important;stroke-width:4.5px!important;filter:drop-shadow(0 0 3px rgba(255,222,140,.7));}
+.link.focus{opacity:1!important;stroke-width:4.5px!important;filter:url(#linkGlow);}
 .link.kinship{stroke:var(--clay);}
 .link.marriage{stroke:var(--gold);stroke-width:2.6px;}
 .link.patronage{stroke:var(--gold);stroke-dasharray:1 4;stroke-linecap:round;}
@@ -415,6 +444,11 @@ body.notes-off .note-field{display:none!important;}
   text-anchor:middle;
   dominant-baseline:central;
 }
+.skull-badge-group{pointer-events:none;}
+.skull-badge-bg{fill:var(--ink2);stroke:var(--ashblue);stroke-width:1.1px;}
+.skull-cranium{fill:var(--muted);}
+.skull-eye{fill:var(--ink2);}
+.skull-jaw{fill:none;stroke:var(--ink2);stroke-width:0.9px;stroke-linecap:round;}
 .panel-eyebrow{
   font-family:'PT Sans',sans-serif;
   font-size:10px;
@@ -503,6 +537,14 @@ footer button:disabled{opacity:.3;cursor:default;}
     <p>Пред тобою не свиток и не море, а карта хитросплетений — боги и смертные, любовь и вражда, дом и чужбина, сплетённые в двадцати четырёх песнях.</p>
     <p>Да будет твой путь домой короче, чем у Одиссея.</p>
     <div class="splash-hint">Коснитесь, чтобы войти</div>
+    <div class="splash-version">
+      v1.0 · 02.08.2026
+      <ul class="splash-changelog">
+        <li>Сверено с переводом Жуковского — 22 новых персонажа по всем 24 песням</li>
+        <li>Метка-череп для погибших героев со следующей песни</li>
+        <li>Исправлена подсветка в Safari</li>
+      </ul>
+    </div>
   </div>
 </div>
 <script>
@@ -661,7 +703,7 @@ const CATS = {
   household:  {label:"Слуги и домочадцы",    color:"var(--sand)"},
   phaeacian:  {label:"Феаки",                color:"var(--aegean)"},
   wander:     {label:"Чужие края и стихии",  color:"var(--violet)"},
-  underworld: {label:"Тени Аида",            color:"var(--ashblue)"},
+  underworld: {label:"Тени и рок",            color:"var(--ashblue)"},
   guest:      {label:"Гостеприимные дворы",  color:"var(--ochre)"}
 };
 
@@ -680,20 +722,34 @@ const RAW_NODES = {
   odysseus:     ["Одиссей","многохитрый царь Итаки","family",1,"Царь Итаки, десять лет пробирающийся домой после Троянской войны; герой поэмы, любимец Афины и жертва гнева Посейдона."],
   telemachus:   ["Телемах","сын Одиссея","family",1,"Взрослеющий сын Одиссея; отправляется на поиски вестей об отце и учится быть правителем."],
   penelope:     ["Пенелопа","жена Одиссея","family",1,"Верная жена Одиссея, двадцать лет отвергающая женихов хитростью — тканьём и распусканием савана."],
-  athena:       ["Афина","богиня мудрости","god",1,"Покровительствует Одиссею и Телемаху, являясь им в облике смертных — странника или Ментора."],
+  athena:       ["Афина","богиня мудрости","god",1,"Покровительствует Одиссею и Телемаху; является странником Ментесом в первой песни, позже — старцем Ментором."],
   zeus:         ["Зевс","отец богов и людей","god",1,"Верховный бог; на совете богов соглашается помочь Одиссею вернуться, пока в отлучке Посейдон."],
   poseidon:     ["Посейдон","бог морей","god",1,"Мстит Одиссею за ослепление сына Полифема, обрекая его на долгие скитания по морю."],
   antinous:     ["Антиной","предводитель женихов","suitor",1,"Самый дерзкий и жестокий из женихов Пенелопы; замышляет убить Телемаха."],
   eurymachus:   ["Эвримах","жених-льстец","suitor",1,"Второй по влиянию жених, красноречив и лицемерен; соперничает с Антиноем за первенство."],
 
+  clytemnestra: ["Клитемнестра","царица Микен","underworld",1,"Жена Агамемнона; убила мужа по возвращении с Троянской войны вместе с любовником Эгистом."],
+  aegisthus:    ["Эгист","захватчик микенского трона","underworld",1,"Соблазнил Клитемнестру и погубил Агамемнона, пока тот воевал под Троей; убит мстящим Орестом."],
+  orestes:      ["Орест","сын Агамемнона","underworld",1,"Жив и деятелен — не тень; отомстил за отца, убив Эгиста. Афина ставит его в пример нерешительному Телемаху."],
+  atlas:        ["Атлант","титан, держащий небосвод","wander",1,"Отец Калипсо; коварный титан, которому ведомы все морские глубины."],
+  thoosa:       ["Фооса","нимфа морских пучин","god",1,"Дочь морского старца Форкия; от союза с Посейдоном родила циклопа Полифема."],
+  icarius:      ["Икарий","отец Пенелопы","family",1,"Упоминается как «старец Икарий» — отец Пенелопы, оставшийся в её родном доме."],
+
   eurycleia:    ["Эвриклея","старая нянька","household",2,"Преданная няня Одиссея и Телемаха; впоследствии узнаёт хозяина по шраму на ноге."],
+  mentor:       ["Ментор","друг Одиссея","household",2,"Верный друг, которому Одиссей доверил дом и сына; Афина не раз принимает его облик и голос."],
+  aegyptius:    ["Египтий","итакийский старейшина","household",2,"Открывает собрание на площади; лишился сына Антифонта, съеденного Полифемом; другой сын — среди женихов."],
+  eurynomus:    ["Еврином","сын Египтия","suitor",2,"Один из женихов Пенелопы, сын старейшины Египтия."],
+  leocritus:    ["Леокрит","насмешливый жених","suitor",2,"Дерзко осмеивает Ментора на собрании итакийцев; его сын Эвенор погибнет среди женихов."],
+  noemon:       ["Ноемон","сын Фрония","household",2,"Одалживает Афине корабль для тайного отплытия Телемаха; позже его расспрашивает Антиной."],
 
   nestor:       ["Нестор","царь Пилоса","guest",3,"Мудрый старец, участник Троянской войны; тепло принимает Телемаха, но вестей об Одиссее не имеет."],
   peisistratus: ["Писистрат","сын Нестора","guest",3,"Младший сын Нестора; сопровождает Телемаха в Спарту."],
+  apollo:       ["Аполлон","бог-стрелец","god",4,"Незримой стрелой разит гребцов и царей в разных преданиях; на его священный праздник придётся расправа над женихами."],
 
   menelaus:     ["Менелай","царь Спарты","guest",4,"Муж Елены; рассказывает Телемаху, что видел Одиссея пленником нимфы Калипсо."],
   helen:        ["Елена","прекрасная царица","guest",4,"Причина Троянской войны; ныне мирно хозяйствует рядом с Менелаем в Спарте."],
   proteus:      ["Протей","морской старец-пророк","wander",4,"Вещий морской старец, которого Менелай ловит, чтобы узнать судьбу товарищей и Одиссея."],
+  dolius:       ["Долион","старый садовник","household",4,"Верный слуга, данный Пенелопе отцом в приданое; отец предателей Меланфия и Меланфо, но сам хранит верность дому."],
 
   calypso:      ["Калипсо","нимфа-островитянка","wander",5,"Держит Одиссея на своём острове Огигия семь лет, суля бессмертие взамен возвращения домой."],
   hermes:       ["Гермес","вестник богов","god",5,"Приносит Калипсо приказ Зевса — отпустить Одиссея."],
@@ -703,11 +759,14 @@ const RAW_NODES = {
 
   alcinous:     ["Алкиной","царь феаков","phaeacian",7,"Гостеприимный царь острова Схерия, отец Навсикаи; снаряжает корабль, что довезёт Одиссея до Итаки."],
   arete:        ["Арета","царица феаков","phaeacian",7,"Мудрая жена Алкиноя; к её коленям припадает Одиссей, прося покровительства."],
+  pontonous:    ["Понтоной","глашатай феаков","phaeacian",7,"Разливает вино на пирах Алкиноя и приводит по его слову певца Демодока."],
 
   demodocus:    ["Демодок","слепой певец","phaeacian",8,"Слепой сказитель при дворе феаков; поёт о Троянской войне и доводит Одиссея до слёз."],
   hephaestus:   ["Гефест","бог-кузнец","god",8,"Муж Афродиты; в песне Демодока хитро ловит жену и Ареса в сеть на месте измены."],
   aphrodite:    ["Афродита","богиня любви","god",8,"В песне Демодока изменяет мужу Гефесту с Аресом и попадается в его ловушку."],
   ares:         ["Арес","бог войны","god",8,"Любовник Афродиты, пойманный Гефестом на месте измены — сюжет песни Демодока."],
+  laodamas:     ["Лаодам","сын Алкиноя","phaeacian",8,"Устроитель состязаний феаков; приглашает Одиссея принять в них участие."],
+  euryalus:     ["Эвриал","дерзкий феак","phaeacian",8,"Оскорбляет Одиссея на состязаниях, назвав его торгашом, но позже мирится и дарит ему меч."],
 
   polyphemus:   ["Полифем","циклоп","wander",9,"Одноглазый сын Посейдона; пожирает спутников Одиссея в своей пещере, ослеплён и проклинает обидчика."],
 
@@ -715,9 +774,13 @@ const RAW_NODES = {
   antiphates:   ["Антифат","царь лестригонов","wander",10,"Царь великанов-людоедов; уничтожает почти весь флот Одиссея одним ударом."],
   circe:        ["Кирка","волшебница-чародейка","wander",10,"Дочь Гелиоса; превращает спутников Одиссея в свиней, но позже становится его советчицей."],
   eurylochus:   ["Эврилох","осторожный спутник","household",10,"Спутник Одиссея, часто спорит с ним; позже подбивает команду съесть священных быков Гелиоса."],
+  elpenor:      ["Ельпенор","самый юный спутник","household",10,"Спьяну падает с крыши дома Цирцеи и разбивается насмерть; его непогребённая тень молит о погребении."],
+  hades:        ["Аид","бог царства мёртвых","underworld",10,"Мрачный владыка загробного мира, супруг Персефоны; к его области направляет Одиссея Цирцея."],
+  persephone:   ["Персефона","владычица Аида","underworld",10,"Царствует в подземном мире вместе с Аидом; сохраняет разум Тиресия даже среди бессловесных теней."],
 
   tiresias:     ["Тиресий","слепой прорицатель","underworld",11,"Тень фиванского провидца в Аиде; единственный, кто предсказывает Одиссею весь оставшийся путь."],
   anticleia:    ["Антиклея","мать Одиссея","family",11,"Тень матери Одиссея, умершей от тоски по сыну; встреча с ней в Аиде глубоко печалит героя."],
+  autolycus:    ["Автолик","дед Одиссея","family",11,"Хитрый дед по матери, знаменитый вор; дал внуку имя и подарки — а от охоты на его земле у Одиссея шрам на ноге."],
   agamemnon:    ["Агамемнон","тень царя микенского","underworld",11,"Убитый по возвращении женой; предостерегает Одиссея не доверять женщинам слепо."],
   achilles:     ["Ахилл","тень величайшего героя","underworld",11,"Тень героя Троянской войны; признаётся, что лучше быть живым батраком, чем царём мёртвых."],
   ajax:         ["Аякс","оскорблённая тень","underworld",11,"Всё ещё гневается на Одиссея за спор о доспехах Ахилла и молча отворачивается от него."],
@@ -730,17 +793,27 @@ const RAW_NODES = {
   eumaeus:      ["Евмей","верный свинопас","household",14,"Раб-свинопас, не узнавший в страннике Одиссея, но принявший его с искренним гостеприимством."],
 
   theoclymenus: ["Феоклимен","пророк-изгнанник","guest",15,"Беглый прорицатель, которого Телемах берёт на свой корабль по пути домой."],
+  piraeus:      ["Пирей","друг Телемаха","household",15,"Верный итакийский друг Телемаха; хранит его добро и провожает к нему прорицателя Феоклимена."],
+
+  amphinomus:   ["Амфином","благоразумный жених","suitor",16,"Самый рассудительный из женихов; замечает возвращение корабля с несостоявшейся засады на Телемаха."],
 
   argos:        ["Аргос","старый пёс Одиссея","household",17,"Единственный, кто узнаёт хозяина сразу — и умирает от радости, увидев вернувшегося Одиссея."],
   melanthius:   ["Меланфий","предатель-козопас","suitor",17,"Козопас, переметнувшийся к женихам; оскорбляет нищего странника — на деле переодетого Одиссея."],
+  eurynome:     ["Евринома","ключница дворца","household",17,"Разумная ключница; верно служит Пенелопе и помогает ей советом."],
 
   irus:         ["Ир","наглый бродяга","household",18,"Уличный попрошайка; вызывает мнимого нищего на кулачный бой и с позором проигрывает."],
   melantho:     ["Меланто","неверная служанка","household",18,"Служанка Пенелопы; тайно сближается с Эвримахом и дерзит нищему страннику."],
 
   philoetius:   ["Филойтий","верный волопас","household",20,"Пастух-волопас; как и Евмей, хранит верность отсутствующему хозяину, позже помогает в расправе."],
+  ctesippus:    ["Ктесипп","заносчивый жених","suitor",20,"Богач с острова Зам; бросает в нищего Одиссея бычьим копытом ради потехи."],
+  agelaus:      ["Агелай","жених, сын Дамастора","suitor",20,"Один из наиболее речистых женихов; уговаривает Телемаха отдать мать замуж."],
+
+  leodes:       ["Леодей","жрец-гадатель среди женихов","suitor",21,"Первым из женихов пробует лук Одиссея; на расправе тщетно молит о пощаде."],
+  iphitus:      ["Ифит","даритель лука","guest",21,"Некогда подарил юному Одиссею знаменитый лук — тот самый, что станет орудием расправы над женихами."],
 
   phemius:      ["Фемий","певец поневоле","household",22,"Придворный певец, вынужденный развлекать женихов; молит о пощаде и получает её."],
   medon:        ["Медон","глашатай","household",22,"Домашний глашатай; прячется во время расправы над женихами и позже пощажён Телемахом."],
+  amphimedon:   ["Амфимедон","жених, ранивший Телемаха","suitor",22,"Ранит Телемаха в руку, но погибает от его копья; в Аиде его тень расскажет Агамемнону о гибели женихов."],
 
   laertes:      ["Лаэрт","отец Одиссея","family",24,"Престарелый отец Одиссея, доживающий век в горе на своём винограднике; последним узнаёт сына."],
   eupeithes:    ["Эвпейт","отец Антиноя","suitor",24,"Отец убитого Антиноя; поднимает родичей женихов на Одиссея, но гибнет от руки Лаэрта."]
@@ -760,8 +833,23 @@ const RAW_LINKS = [
   ["eurymachus","penelope","enmity",1,"домогается руки лестью"],
   ["antinous","eurymachus","alliance",1,"соперники-союзники среди женихов"],
 
+  ["agamemnon","clytemnestra","marriage",1,"муж, убитый ею по возвращении из-под Трои"],
+  ["clytemnestra","aegisthus","alliance",1,"любовники, вместе погубившие Агамемнона"],
+  ["aegisthus","orestes","enmity",1,"убит сыном Агамемнона, мстящим за отца"],
+  ["orestes","agamemnon","kinship",1,"сын, отомстивший за убитого отца"],
+  ["atlas","calypso","kinship",1,"отец, титан-хранитель небесных столбов"],
+  ["thoosa","poseidon","alliance",1,"мать Полифема от союза с Посейдоном"],
+  ["icarius","penelope","kinship",1,"отец Пенелопы"],
+
   ["eurycleia","odysseus","service",2,"нянчила с детства"],
   ["eurycleia","telemachus","service",2,"нянька и советчица"],
+  ["mentor","odysseus","alliance",2,"доверенный друг, хранит его дом в отлучке"],
+  ["mentor","telemachus","alliance",2,"поддерживает и наставляет юношу на собрании"],
+  ["aegyptius","eurynomus","kinship",2,"отец и сын"],
+  ["eurynomus","penelope","enmity",2,"один из докучающих ей женихов"],
+  ["leocritus","mentor","enmity",2,"насмехается над ним на собрании"],
+  ["noemon","telemachus","alliance",2,"даёт корабль для тайного отплытия"],
+  ["noemon","antinous","encounter",2,"его встревоженно расспрашивает о пропавшем корабле"],
 
   ["nestor","peisistratus","kinship",3,"отец и сын"],
   ["nestor","telemachus","alliance",3,"принимает как гостя"],
@@ -773,6 +861,8 @@ const RAW_LINKS = [
   ["menelaus","odysseus","alliance",4,"соратник под Троей"],
   ["helen","odysseus","encounter",4,"помнит его хитрость под Троей"],
   ["proteus","menelaus","encounter",4,"вынужден открыть пророчество"],
+  ["dolius","penelope","service",4,"верный слуга её родительского дома"],
+  ["apollo","menelaus","encounter",4,"незримой стрелой разит его кормчего на обратном пути из-под Трои"],
 
   ["calypso","odysseus","encounter",5,"держит пленником семь лет"],
   ["zeus","hermes","kinship",5,"отец и сын"],
@@ -787,6 +877,8 @@ const RAW_LINKS = [
   ["alcinous","arete","marriage",7,"супруги, правят вместе"],
   ["alcinous","odysseus","alliance",7,"снаряжает корабль домой"],
   ["arete","odysseus","alliance",7,"первой оказывает милость"],
+  ["pontonous","alcinous","service",7,"разливает вино на его пирах"],
+  ["pontonous","demodocus","encounter",7,"приводит слепого певца по слову Алкиноя"],
 
   ["demodocus","alcinous","service",8,"придворный певец"],
   ["demodocus","odysseus","encounter",8,"песней доводит героя до слёз"],
@@ -794,8 +886,13 @@ const RAW_LINKS = [
   ["hephaestus","aphrodite","marriage",8,"супруги"],
   ["aphrodite","ares","encounter",8,"тайная связь, воспетая Демодоком"],
   ["hephaestus","ares","enmity",8,"ловит в сеть соперника"],
+  ["laodamas","alcinous","kinship",8,"сын и отец"],
+  ["laodamas","odysseus","alliance",8,"приглашает его на состязания"],
+  ["euryalus","odysseus","enmity",8,"оскорбляет его, назвав торгашом"],
+  ["euryalus","laodamas","alliance",8,"товарищи по состязаниям"],
 
   ["poseidon","polyphemus","kinship",9,"отец и сын"],
+  ["thoosa","polyphemus","kinship",9,"мать циклопа, нимфа морских пучин"],
   ["polyphemus","odysseus","enmity",9,"ослеплён и проклинает героя"],
 
   ["aeolus","odysseus","encounter",10,"дарит попутные ветры и вновь прогоняет"],
@@ -804,8 +901,14 @@ const RAW_LINKS = [
   ["circe","eurylochus","enmity",10,"он один не доверяет ей"],
   ["eurylochus","odysseus","alliance",10,"верный, но строптивый спутник"],
   ["circe","helios","kinship",10,"дочь и отец"],
+  ["elpenor","odysseus","service",10,"просит похоронить его после падения с крыши"],
+  ["elpenor","circe","encounter",10,"гостит в её доме, где и погибает"],
+  ["hades","persephone","marriage",10,"супруги, правящие царством мёртвых"],
 
   ["tiresias","odysseus","encounter",11,"предрекает весь путь домой"],
+  ["persephone","tiresias","patronage",11,"сохраняет его разум даже среди мёртвых"],
+  ["autolycus","odysseus","kinship",11,"дал ему имя и дары; от охоты на его земле — шрам на ноге героя"],
+  ["autolycus","anticleia","kinship",11,"отец и дочь"],
   ["anticleia","odysseus","kinship",11,"мать и сын"],
   ["agamemnon","odysseus","encounter",11,"предостерегает о женском коварстве"],
   ["achilles","odysseus","encounter",11,"делится горькой мудростью мёртвых"],
@@ -821,8 +924,14 @@ const RAW_LINKS = [
   ["eumaeus","telemachus","service",14,"укрывает и оберегает"],
 
   ["theoclymenus","telemachus","alliance",15,"спутник на обратном пути"],
+  ["piraeus","telemachus","alliance",15,"хранит его добро, пока тот в пути"],
+  ["piraeus","theoclymenus","service",15,"готов приютить его вещи"],
+
+  ["amphinomus","antinous","alliance",16,"участвует в замыслах против Телемаха"],
+  ["amphinomus","telemachus","encounter",16,"относится к нему мягче прочих женихов"],
 
   ["argos","odysseus","service",17,"узнаёт хозяина и умирает от радости"],
+  ["eurynome","penelope","service",17,"верно служит и советует госпоже"],
   ["melanthius","antinous","alliance",17,"служит женихам"],
   ["melanthius","odysseus","enmity",17,"оскорбляет нищего странника"],
   ["melanthius","eumaeus","enmity",17,"презирает верного свинопаса"],
@@ -837,10 +946,20 @@ const RAW_LINKS = [
 
   ["philoetius","odysseus","service",20,"тайно клянётся в верности страннику"],
   ["philoetius","eumaeus","alliance",20,"вместе хранят верность хозяину"],
+  ["ctesippus","odysseus","enmity",20,"бросает в него бычьим копытом"],
+  ["agelaus","telemachus","encounter",20,"советует ему уговорить мать выйти замуж"],
+  ["agelaus","antinous","alliance",20,"заодно с вожаками женихов"],
+
+  ["leodes","antinous","alliance",21,"первым из женихов пробует лук — неудачно"],
+  ["iphitus","odysseus","alliance",21,"подарил ему в юности лук, ставший орудием мести"],
 
   ["phemius","odysseus","encounter",22,"молит о пощаде и получает её"],
   ["medon","telemachus","encounter",22,"спасён заступничеством"],
   ["melanthius","odysseus","enmity",22,"казнён за предательство"],
+  ["leodes","odysseus","enmity",22,"тщетно молит о пощаде — и гибнет"],
+  ["amphimedon","telemachus","enmity",22,"ранит его в руку и гибнет от его копья"],
+  ["ctesippus","philoetius","enmity",22,"убит им в отместку за брошенное копыто"],
+  ["agelaus","odysseus","enmity",22,"гибнет от его руки"],
 
   ["penelope","odysseus","marriage",23,"воссоединяются: испытание ложа"],
 
@@ -849,13 +968,21 @@ const RAW_LINKS = [
   ["eupeithes","antinous","kinship",24,"отец и сын"],
   ["eupeithes","odysseus","enmity",24,"поднимает родичей на кровную месть"],
   ["laertes","eupeithes","enmity",24,"поражает его в решающей битве"],
-  ["athena","odysseus","patronage",24,"заключает мир между сторонами"]
+  ["athena","odysseus","patronage",24,"заключает мир между сторонами"],
+  ["amphimedon","agamemnon","encounter",24,"тень рассказывает тени о гибели женихов"]
 ];
 
 const NODES = {};
+// песнь, в которую персонаж явно погибает в тексте поэмы — череп появится со следующей песни
+const DEATHS = {
+  elpenor:10, eurylochus:12, argos:17,
+  antinous:22, eurymachus:22, melanthius:22, melantho:22,
+  ctesippus:22, agelaus:22, leodes:22, amphimedon:22, eurynomus:22,
+  eupeithes:24
+};
 Object.keys(RAW_NODES).forEach(id=>{
   const [name,ep,cat,ch,desc] = RAW_NODES[id];
-  NODES[id] = {id,name,ep,cat,ch,desc};
+  NODES[id] = {id,name,ep,cat,ch,desc,died:DEATHS[id]||null};
 });
 const LINKS = RAW_LINKS.map(([s,t,type,ch,label])=>({s,t,type,ch,label}));
 
@@ -1066,6 +1193,17 @@ window.addEventListener('keydown', e=>{
 /* ---------- ГРАФ (D3) ---------- */
 
 const svg = d3.select('#graph');
+const defs = svg.append('defs');
+[
+  {id:'nodeGlow', blur:3.4},
+  {id:'linkGlow', blur:2.6}
+].forEach(function(g){
+  defs.append('filter')
+    .attr('id', g.id)
+    .attr('x','-120%').attr('y','-120%').attr('width','340%').attr('height','340%')
+    .attr('color-interpolation-filters','sRGB')
+    .html('<feGaussianBlur stdDeviation="'+g.blur+'" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>');
+});
 const graphWrapEl = document.getElementById('graphWrap');
 let W = 960, H = 620;
 function measureGraph(){
@@ -1252,6 +1390,12 @@ function render(){
         const badge = g.append('g').attr('class','note-badge-group');
         badge.append('circle').attr('class','note-badge-bg').attr('r',6.5);
         badge.append('text').attr('class','note-badge-glyph').text('Ψ');
+        const skull = g.append('g').attr('class','skull-badge-group');
+        skull.append('circle').attr('class','skull-badge-bg').attr('r',6.5);
+        skull.append('circle').attr('class','skull-cranium').attr('cy',-0.7).attr('r',3.6);
+        skull.append('circle').attr('class','skull-eye').attr('cx',-1.3).attr('cy',-1.1).attr('r',0.85);
+        skull.append('circle').attr('class','skull-eye').attr('cx',1.3).attr('cy',-1.1).attr('r',0.85);
+        skull.append('path').attr('class','skull-jaw').attr('d','M -2.1,1.6 Q 0,3.2 2.1,1.6');
         g.transition().duration(450).style('opacity',1);
         return g;
       },
@@ -1265,6 +1409,9 @@ function render(){
   nodeJoin.select('g.note-badge-group')
     .attr('transform', d=> `translate(${nodeRadius(d)*0.68},${-nodeRadius(d)*0.68})`)
     .style('display', d=> hasNotes(d.id) ? null : 'none');
+  nodeJoin.select('g.skull-badge-group')
+    .attr('transform', d=> `translate(${-nodeRadius(d)*0.68},${nodeRadius(d)*0.68})`)
+    .style('display', d=> (d.died && currentChapter>d.died) ? null : 'none');
   nodeSel = nodeJoin;
 
   applySelectionStyles();
