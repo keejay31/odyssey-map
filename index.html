@@ -401,9 +401,85 @@ aside#sidebar{
 .toolbar{
   display:flex;
   align-items:center;
-  justify-content:flex-end;
-  gap:9px;
+  justify-content:space-between;
+  gap:14px;
   padding:0 2px 10px;
+}
+.search-wrap{
+  position:relative;
+  flex:1 1 auto;
+  max-width:300px;
+  min-width:0;
+}
+.search-input{
+  width:100%;
+  background:rgba(0,0,0,.22);
+  border:1px solid #3a2f20;
+  border-radius:14px;
+  color:var(--papyrus);
+  font-family:'PT Serif',Georgia,serif;
+  font-size:13px;
+  padding:6px 14px;
+  transition:border-color .2s;
+}
+.search-input::placeholder{color:var(--muted);font-style:italic;}
+.search-input:focus{outline:none;border-color:var(--gold);}
+.notes-toggle-group{display:flex;align-items:center;gap:9px;flex:0 0 auto;}
+.search-results{
+  position:absolute;
+  top:calc(100% + 6px);
+  left:0;
+  right:0;
+  background:var(--ink2);
+  border:1px solid #3a2f20;
+  border-radius:6px;
+  box-shadow:0 12px 30px rgba(0,0,0,.5);
+  max-height:320px;
+  overflow-y:auto;
+  z-index:80;
+}
+.search-result{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  padding:8px 12px;
+  cursor:pointer;
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.search-result:last-child{border-bottom:none;}
+.search-result:hover,.search-result.active{background:rgba(201,162,39,.14);}
+.search-result .sr-name{
+  font-family:'PT Serif',Georgia,serif;
+  font-weight:700;
+  font-size:13px;
+  color:var(--papyrus);
+  flex:0 0 auto;
+}
+.search-result .sr-ep{
+  font-family:'PT Sans',sans-serif;
+  font-size:10.5px;
+  font-style:italic;
+  color:var(--muted);
+  flex:1 1 auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.search-result .sr-ch{
+  font-family:'PT Sans',sans-serif;
+  font-size:10px;
+  color:var(--gold);
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.search-result.locked .sr-name{color:var(--muted);}
+.search-result.locked .sr-ch{color:var(--ashblue);}
+.search-empty{
+  padding:11px 12px;
+  color:var(--muted);
+  font-family:'PT Sans',sans-serif;
+  font-size:12px;
+  font-style:italic;
 }
 .toolbar-label{
   font-family:'PT Sans',sans-serif;
@@ -647,11 +723,17 @@ footer button:disabled{opacity:.3;cursor:default;}
   <div class="meander-divider"></div>
 
   <div class="toolbar">
-    <span class="toolbar-label">Заметки</span>
-    <label class="switch">
-      <input type="checkbox" id="notesToggleInput" checked>
-      <span class="switch-track"><span class="switch-thumb"></span></span>
-    </label>
+    <div class="search-wrap">
+      <input type="text" id="charSearchInput" class="search-input" placeholder="Искать персонажа…" autocomplete="off" aria-label="Поиск персонажа">
+      <div id="charSearchResults" class="search-results" hidden></div>
+    </div>
+    <div class="notes-toggle-group">
+      <span class="toolbar-label">Заметки</span>
+      <label class="switch">
+        <input type="checkbox" id="notesToggleInput" checked>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+      </label>
+    </div>
   </div>
 
   <nav id="chapterTabs" aria-label="Выбор песни"></nav>
@@ -1186,9 +1268,88 @@ function setChapter(n){
 document.getElementById('prevBtn').addEventListener('click', ()=> setChapter(currentChapter-1));
 document.getElementById('nextBtn').addEventListener('click', ()=> setChapter(currentChapter+1));
 window.addEventListener('keydown', e=>{
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if(tag==='INPUT' || tag==='TEXTAREA') return; // не листать главы, пока человек печатает
   if(e.key==='ArrowRight') setChapter(currentChapter+1);
   if(e.key==='ArrowLeft') setChapter(currentChapter-1);
 });
+
+/* ---------- ПОИСК ПЕРСОНАЖА ---------- */
+
+function jumpToCharacter(id){
+  const n = NODES[id];
+  if(!n) return;
+  if(n.ch > currentChapter){
+    setChapter(n.ch);
+  }
+  selectedId = id; secondaryId = null;
+  renderDetail(id);
+  applySelectionStyles();
+}
+
+(function initSearch(){
+  const input = document.getElementById('charSearchInput');
+  const box = document.getElementById('charSearchResults');
+  let matches = [];
+  let activeIdx = -1;
+
+  function norm(s){ return (s||'').toLowerCase(); }
+
+  function draw(query){
+    const q = norm(query).trim();
+    if(!q){ close(); return; }
+    matches = Object.values(NODES)
+      .filter(n=> norm(n.name).includes(q) || norm(n.ep).includes(q))
+      .sort((a,b)=> a.ch-b.ch || a.name.localeCompare(b.name,'ru'))
+      .slice(0,10);
+    activeIdx = matches.length ? 0 : -1;
+    if(!matches.length){
+      box.innerHTML = '<div class="search-empty">Никого не найдено</div>';
+      box.hidden = false;
+      return;
+    }
+    box.innerHTML = matches.map((n,i)=>{
+      const locked = n.ch > currentChapter;
+      return `<div class="search-result${locked?' locked':''}${i===0?' active':''}" data-id="${n.id}">
+        <span class="sr-name">${n.name}</span>
+        <span class="sr-ep">${n.ep}</span>
+        <span class="sr-ch">${locked?'песнь '+ROMAN[n.ch-1]:'сейчас'}</span>
+      </div>`;
+    }).join('');
+    box.hidden = false;
+    box.querySelectorAll('.search-result').forEach(el=>{
+      el.addEventListener('mousedown', ev=>{ ev.preventDefault(); pick(el.dataset.id); });
+    });
+  }
+
+  function close(){ box.hidden = true; box.innerHTML = ''; matches = []; activeIdx = -1; }
+
+  function pick(id){
+    jumpToCharacter(id);
+    input.value = '';
+    close();
+    input.blur();
+  }
+
+  function highlight(){
+    [...box.children].forEach((el,i)=> el.classList.toggle('active', i===activeIdx));
+    const el = box.children[activeIdx];
+    if(el) el.scrollIntoView({block:'nearest'});
+  }
+
+  input.addEventListener('input', ()=> draw(input.value));
+  input.addEventListener('focus', ()=>{ if(input.value.trim()) draw(input.value); });
+  input.addEventListener('keydown', ev=>{
+    if(ev.key==='Escape'){ input.value=''; close(); input.blur(); return; }
+    if(box.hidden || !matches.length) return;
+    if(ev.key==='ArrowDown'){ ev.preventDefault(); activeIdx=(activeIdx+1)%matches.length; highlight(); }
+    else if(ev.key==='ArrowUp'){ ev.preventDefault(); activeIdx=(activeIdx-1+matches.length)%matches.length; highlight(); }
+    else if(ev.key==='Enter'){ ev.preventDefault(); if(activeIdx>=0) pick(matches[activeIdx].id); }
+  });
+  document.addEventListener('click', ev=>{
+    if(ev.target!==input && !box.contains(ev.target)) close();
+  });
+})();
 
 /* ---------- ГРАФ (D3) ---------- */
 
