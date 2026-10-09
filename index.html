@@ -643,6 +643,17 @@ footer button:disabled{opacity:.3;cursor:default;}
   -webkit-tap-highlight-color:transparent;
 }
 .mp.paused .mp-canvas{filter:saturate(.85) brightness(.92);}
+.mp-frame{position:relative;flex:0 0 auto;line-height:0;}
+.mp-labels{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .45s ease;}
+.mp-labels.on{opacity:1;}
+.mp-label{
+  position:absolute;transform:translate(-50%,-100%);white-space:nowrap;
+  font-family:'PT Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:.05em;line-height:1.35;
+  color:var(--papyrus);background:rgba(22,17,13,.74);
+  border:1px solid rgba(201,162,39,.6);border-radius:9px;padding:1px 7px;
+  transition:left .1s linear, top .1s linear;
+}
+@media (max-width:560px){ .mp-label{font-size:10px;padding:0 5px;} }
 .mp-progress{display:flex;gap:4px;width:100%;flex:0 0 auto;}
 .mp-seg{flex:1 1 0;height:3px;border-radius:2px;overflow:hidden;background:rgba(233,221,194,.16);}
 .mp-seg i{display:block;height:100%;background:var(--gold);transform-origin:left center;transform:scaleX(0);}
@@ -862,7 +873,10 @@ footer button:disabled{opacity:.3;cursor:default;}
     <button class="mp-close" type="button" aria-label="Закрыть ролик">✕</button>
   </div>
   <div class="mp-stage">
-    <canvas class="mp-canvas" aria-hidden="true"></canvas>
+    <div class="mp-frame">
+      <canvas class="mp-canvas" aria-hidden="true"></canvas>
+      <div class="mp-labels" aria-hidden="true"></div>
+    </div>
     <div class="mp-end" hidden>
       <div class="mp-end-title"></div>
       <div class="mp-end-btns">
@@ -1897,6 +1911,23 @@ const PAL_RGB = PAL_KEYS.map(k=>{
 
 let C = null;
 const P = n => PAL[n][0];
+// подписи над героями: пока сцена рисуется, сюда собираются имена с координатами
+let LBL = null, BASE_KX = 1, BASE_KY = 1;
+function label(t, x, y){ if(LBL) LBL.push({t, x, y}); }
+function labelHere(t, lx, ly, dy){ // точка в локальных координатах текущего рисунка → подпись
+  if(!LBL) return;
+  const q = C.getTransform().transformPoint(new DOMPoint(lx, ly));
+  LBL.push({t, x:q.x/BASE_KX, y:q.y/BASE_KY - (dy||0)});
+}
+
+/* ---------- ВРЕМЯ ВНУТРИ СЦЕНЫ ---------- */
+// k — ход действия сцены от 0 до 1, s — секунды с начала действия
+const lerp = (a,b,k)=> a + (b-a)*k;
+const clamp01 = k=> k<0 ? 0 : k>1 ? 1 : k;
+const ease = k=>{ k = clamp01(k); return k<0.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2; };
+const seg = (k,a,b)=> ease((k-a)/(b-a));                 // отрезок действия, сглаженный
+const osc = (s,f,ph)=> Math.sin((s*f + (ph||0))*TAU);    // качание с частотой f в секунду
+const arc = (k,h)=> -4*h*k*(1-k);                        // высота броска по параболе
 
 function rect(x,y,w,h,n){ C.fillStyle=P(n); C.fillRect(x,y,w,h); }
 function circle(x,y,r,n){ C.fillStyle=P(n); C.beginPath(); C.arc(x,y,r,0,TAU); C.fill(); }
@@ -2052,11 +2083,13 @@ function flowerMoly(x,y,s){
     line('ink',4,[0,0,-6,10]); line('ink',4,[0,0,6,12]); line('ink',3,[0,0,0,14]);
   });
 }
-function laurel(x,y,r,n1,n2){
+function laurel(x,y,r,n1,n2,grow){
+  const g = grow==null ? 1 : grow;
   for(const side of [-1,1]){
     C.strokeStyle=P(n1||'gold'); C.lineWidth=4; C.beginPath();
     C.arc(x,y,r,Math.PI/2+side*0.3,Math.PI/2+side*2.75,side<0); C.stroke();
     for(let i=0;i<11;i++){
+      if(i >= g*11) break;
       const a = Math.PI/2 + side*(0.38 + i*0.22);
       for(const off of [-1,1]){
         const rr = r + off*8;
@@ -2276,8 +2309,9 @@ function beast(x,y,s,kind,o){
     const by = -K.leg - K.h*0.6;
     const legW = kind==='horse'?5.5:(K.h>12?6.5:5);
     // задние/дальние ноги темнее
-    line(o.legN||n, legW, [-K.len*0.62,by, -K.len*0.7,-K.leg*0.45, -K.len*0.62,0]);
-    line(o.legN||n, legW, [K.len*0.55,by, K.len*0.6,0]);
+    const g = o.gait==null ? 0 : Math.sin(o.gait)*K.len*0.22;   // шаг: ноги ходят вперёд-назад
+    line(o.legN||n, legW, [-K.len*0.62,by, -K.len*0.7+g/2,-K.leg*0.45, -K.len*0.62+g,0]);
+    line(o.legN||n, legW, [K.len*0.55,by, K.len*0.6-g,0]);
     if(K.tail==='up') curve(n,4,`M${-K.len},${by-3} q-10,-6 -6,-18`);
     else if(K.tail==='curl') curve(n,3,`M${-K.len},${by-2} q-8,-2 -6,-8 q4,-2 4,3`);
     else if(K.tail==='horse') shape(n,`M${-K.len+2},${by-6} Q${-K.len-16},${by} ${-K.len-10},${by+24} Q${-K.len-6},${by+8} ${-K.len+4},${by}`);
@@ -2297,8 +2331,9 @@ function beast(x,y,s,kind,o){
     if(K.horn==='back'){ curve('stone',3.4,`M${K.head[0]-2},${K.head[1]-4} q-8,-6 -12,0`); }
     if(K.tusk) curve('marble',3,`M${K.snout[0]-4},${K.snout[1]+3} q4,2 6,-6`);
     // ближние ноги
-    line(n, legW, [-K.len*0.48,by, -K.len*0.5,-K.leg*0.45, -K.len*0.42,0]);
-    line(n, legW, [K.len*0.7,by, K.len*0.76,0]);
+    line(n, legW, [-K.len*0.48,by, -K.len*0.5-g/2,-K.leg*0.45, -K.len*0.42-g,0]);
+    line(n, legW, [K.len*0.7,by, K.len*0.76+g,0]);
+    if(o.name) labelHere(o.name, K.head[0], K.head[1]-14);
     circle(K.head[0]+K.head[2]*0.35, K.head[1]-K.head[3]*0.35, 1.6, kind==='bull'?'ash':dark);
     if(o.gilded){ curve('gold',5,`M${K.head[0]-4},${K.head[1]-5} q-6,-10 0,-17`); curve('gold',5,`M${K.head[0]+2},${K.head[1]-5} q4,-10 -1,-17`); }
   }, o.f<0);
@@ -2314,14 +2349,17 @@ function bird(x,y,s,o){ // летящая птица: орёл, гусь, гол
   o=o||{};
   const n = o.n||'umber';
   at(x,y,s,()=>{
+    C.save(); C.scale(1, 1 - (o.flap||0)*1.5);
     shape(n,'M-8,-2 Q-36,-26 -48,-44 Q-26,-38 -2,-12 Z');
     shape(o.n2||n,'M8,-2 Q34,-30 52,-40 Q30,-30 4,-10 Z');
+    C.restore();
     ellipse(0,0,18,7,n,-0.1);
     poly(n,[-16,0,-30,-6,-30,8]);
     circle(18,-4,6,o.head||n);
     poly(o.beak||'gold',[23,-6,32,-3,23,-1]);
     circle(19.5,-5,1.4,'ink');
     if(o.prey) at(4,10,1,o.prey);
+    if(o.name) labelHere(o.name, 0, -30);
   },o.f<0,o.rot);
 }
 function owl(x,y,s){
@@ -2382,11 +2420,31 @@ const POSES = {
   dig:   {arms:[[6,-64,16,-56],[10,-62,20,-50]], legs:[[-6,-24,-12,0],[7,-24,12,0]], lean:0.35},
   push:  {arms:[[12,-74,26,-80],[14,-76,28,-84]], legs:[[-12,-22,-24,0],[8,-28,12,-4]], lean:0.5},
   kick:  {arms:[[-12,-66,-20,-58],[10,-72,20,-66]], legs:[[-6,-24,-10,0],[16,-38,32,-36]]},
-  ground:{drop:30, arms:[[-6,-56,-14,-48],[8,-60,14,-52]], legs:[[-14,-18,-6,-2],[16,-18,24,-2]], seat:true}
+  ground:{drop:30, arms:[[-6,-56,-14,-48],[8,-60,14,-52]], legs:[[-14,-18,-6,-2],[16,-18,24,-2]], seat:true},
+  lie:   {arms:[[-4,-60,-6,-45],[5,-60,7,-45]], legs:[[-2,-24,-4,0],[3,-24,5,0]]}
 };
+// вторая фаза шага: руки и ноги меняются местами
+POSES.walk2 = {arms:[POSES.walk.arms[1], POSES.walk.arms[0]], legs:[POSES.walk.legs[1], POSES.walk.legs[0]]};
+POSES.run2  = {arms:[POSES.run.arms[1], POSES.run.arms[0]], legs:[POSES.run.legs[1], POSES.run.legs[0]]};
+POSES.holdwalk2 = {arms:[[-6,-60,-2,-48], POSES.holdwalk.arms[1]], legs:[POSES.walk.legs[1], POSES.walk.legs[0]]};
+
+// плавный переход между двумя позами (k от 0 до 1)
+function poseMix(a, b, k){
+  const A = typeof a==='string' ? POSES[a] : a, B = typeof b==='string' ? POSES[b] : b;
+  k = clamp01(k);
+  if(k<=0) return A; if(k>=1) return B;
+  const L = (x,y)=> x.map((v,i)=> v.map((q,j)=> lerp(q, y[i][j], k)));
+  const ha = A.head || [1,-91], hb = B.head || [1,-91];
+  const base = k<0.5 ? A : B;
+  return {arms:L(A.arms,B.arms), legs:L(A.legs,B.legs), drop:lerp(A.drop||0,B.drop||0,k),
+          lean:lerp(A.lean||0,B.lean||0,k), head:[lerp(ha[0],hb[0],k), lerp(ha[1],hb[1],k)],
+          seat:base.seat, kneel:base.kneel};
+}
+// шаг на ходу: s — секунды, f — шагов в секунду
+const walking = (s, f, kind)=> poseMix(kind||'walk', (kind||'walk')+'2', 0.5 + 0.5*osc(s, (f||1.4)/2));
 
 function figure(o){
-  const p = POSES[o.pose||'stand'];
+  const p = typeof o.pose==='object' ? o.pose : POSES[o.pose||'stand'];
   const drop = p.drop||0;
   const female = !!o.female;
   const skin = o.skin || (female ? 'flesh' : 'skin');
@@ -2471,6 +2529,10 @@ function figure(o){
     line(skin, armW, [sh[1][0],sh[1][1], e1[0],e1[1], h1[0],h1[1]]);
     circle(h1[0],h1[1],3.6,skin);
     if(o.front) o.front(h1, h0, U);
+    if(o.name){
+      if(o.rot) labelHere(o.name, 0, -50, 22*(o.s||1));
+      else labelHere(o.name, hd[0], hd[1] - (o.halo ? 21 : 14) - (o.helmet ? 12 : 0));
+    }
   }, o.f<0, o.rot);
 }
 // типовые предметы в руках: функции (кисть ближней руки, кисть дальней)
@@ -2550,12 +2612,13 @@ function scylla(x,y,s){
     });
   });
 }
-function whirl(x,y,r){
+function whirl(x,y,r,ph){ // водоворот; ph — угол поворота струй
+  ph = ph||0;
   ellipse(x,y,r,r*0.42,'deep');
   for(let i=0;i<4;i++){
     const rr = r*(0.95-i*0.22);
     C.strokeStyle=P(i%2?'foam':'sea'); C.lineWidth=6; C.lineCap='round';
-    C.beginPath(); C.ellipse(x,y+i*2,rr,rr*0.42,0, i*0.8, i*0.8+4.6); C.stroke();
+    C.beginPath(); C.ellipse(x,y+i*2,rr,rr*0.42,0, i*0.8+ph*(1+i*0.4), i*0.8+4.6+ph*(1+i*0.4)); C.stroke();
   }
   ellipse(x,y+8,r*0.16,r*0.08,'night');
 }
@@ -2611,18 +2674,21 @@ function hut(x,y,s){
   });
 }
 function fenceStones(y){ for(let x=6;x<SW;x+=24) { ellipse(x,y,12,8,'stone'); ellipse(x+12,y-10,11,7,'ash'); } }
-function ghosts(n, seed, area){
+function ghosts(n, seed, area, t, toward){ // тени: парят и покачиваются; toward — точка, к которой слетаются
   const r = rnd(seed);
   for(let i=0;i<n;i++){
-    const gx = area[0]+r()*(area[2]-area[0]), gy = area[1]+r()*(area[3]-area[1]);
+    let gx = area[0]+r()*(area[2]-area[0]), gy = area[1]+r()*(area[3]-area[1]);
+    const ph = r();
+    if(toward){ gx = lerp(gx, toward[0]+(r()-0.5)*60, toward[2]); gy = lerp(gy, toward[1]+(r()-0.5)*20, toward[2]); }
+    if(t!=null){ gy += osc(t, 0.4, ph)*5; gx += osc(t, 0.25, ph+0.3)*4; }
     ghostFig({x:gx, y:gy, s:0.45+r()*0.25, f:r()<0.5?1:-1, pose:r()<0.5?'plead':'mourn', long:true, eye:'none'});
   }
 }
-function wavesBig(top){ // штормовые валы
+function wavesBig(top, t){ // штормовые валы; t — секунды, волны бегут
   for(let i=0;i<5;i++){
-    const y = top + i*24;
-    for(let x=-30+(i%2)*30; x<SW+40; x+=60) shape(i%2?'sea':'deep', `M${x},${y+30} Q${x+14},${y-6} ${x+34},${y} Q${x+22},${y+6} ${x+26},${y+16} Q${x+40},${y+14} ${x+60},${y+30} Z`);
-    for(let x=-30+(i%2)*30; x<SW+40; x+=60) curve('foam',4,`M${x+12},${y+6} Q${x+22},${y-4} ${x+34},${y}`);
+    const y = top + i*24, sh = t ? ((t*(14+i*5)) % 60) : 0;
+    for(let x=-90+(i%2)*30+sh; x<SW+40; x+=60) shape(i%2?'sea':'deep', `M${x},${y+30} Q${x+14},${y-6} ${x+34},${y} Q${x+22},${y+6} ${x+26},${y+16} Q${x+40},${y+14} ${x+60},${y+30} Z`);
+    for(let x=-90+(i%2)*30+sh; x<SW+40; x+=60) curve('foam',4,`M${x+12},${y+6} Q${x+22},${y-4} ${x+34},${y}`);
   }
 }
 
@@ -2636,9 +2702,9 @@ function tripod(x,y,s){
 function quern(x,y,s){
   at(x,y,s,()=>{ ellipse(0,-6,22,8,'stone'); ellipse(0,-14,18,7,'ash'); line('umber',3,[8,-16,12,-30]); for(let i=0;i<6;i++) circle(-18+i*7,-1,2,'cream'); });
 }
-function rain(seed){
+function rain(seed, t){
   const r = rnd(seed||2);
-  for(let i=0;i<70;i++){ const x=r()*SW, y=r()*SH; line('ash',2.4,[x,y,x-6,y+14]); }
+  for(let i=0;i<70;i++){ const x=r()*SW, y=(r()*SH + (t||0)*260) % SH; line('ash',2.4,[x+y*0.1,y,x+y*0.1-6,y+14]); }
 }
 function bat(x,y,s){
   at(x,y,s,()=>{ shape('ink','M0,0 Q-8,-10 -22,-8 Q-16,-4 -18,2 Q-10,-2 -8,4 Q-4,0 0,4 Q4,0 8,4 Q10,-2 18,2 Q16,-4 22,-8 Q8,-10 0,0 Z'); circle(0,-2,3.4,'ink'); });
@@ -2662,15 +2728,16 @@ function city(y, seed){ // далёкий город на холме
 }
 
 /* ---------- СЦЕНЫ ---------- */
+// каждая сцена — функция d(k, s): k — ход действия от 0 до 1, s — секунды с его начала
 
-function titleCard(n){
+function titleCard(n, k){
   bg('lapis');
   const r = rnd(n*13+1);
   for(let i=0;i<16;i++){
     const a = r()*TAU, d = 120 + r()*80;
     circle(200+Math.cos(a)*d*1.3, 150+Math.sin(a)*d*0.8, 3+r()*2, r()<0.6?'gold':'gold2');
   }
-  laurel(200,150,104);
+  laurel(200,150,104,null,null,0.15+0.85*seg(k,0,0.7));   // венок вырастает листок за листком
   const txt = ROMAN[n-1];
   C.textAlign = 'center'; C.textBaseline = 'middle';
   let size = 150;
@@ -2681,23 +2748,38 @@ function titleCard(n){
   C.fillStyle = P('gold'); C.fillText(txt, 200, 156);
 }
 
+// ещё несколько поз для сидящих и коленопреклонённых
+POSES.sitgreet = {drop:10, arms:[[-2,-58,8,-50],[12,-68,25,-66]], legs:[[-6,-38,-4,0],[18,-38,19,0]], seat:true};
+POSES.sitraise = {drop:10, arms:[[-2,-58,8,-50],[10,-90,14,-106]], legs:[[-6,-38,-4,0],[18,-38,19,0]], seat:true};
+POSES.sitdrink = {drop:10, arms:[[-2,-58,8,-50],[12,-72,8,-86]], legs:[[-6,-38,-4,0],[18,-38,19,0]], seat:true};
+POSES.kneelup  = {drop:16, arms:[[-9,-92,-12,-108],[9,-92,13,-108]], legs:[[-6,-6,-24,-3],[14,-30,15,0]], kneel:true};
+POSES.crouch   = {drop:14, arms:[[10,-60,22,-50],[12,-62,24,-48]], legs:[[-8,-20,-16,0],[12,-22,14,0]], lean:0.45};
+
+// идёт, пока k не дошёл до b, затем плавно принимает позу
+const arrive = (k, s, b, pose)=> poseMix(walking(s), pose||'stand', seg(k, b-0.02, b+0.08));
+const swing  = (s, f, a, b, ph)=> poseMix(a, b, 0.5+0.5*osc(s, f, ph));   // качание между двумя позами
+
 // персонажи с привычными приметами — чтобы их узнавали от песни к песне
 const mix = (base, o)=> Object.assign({}, base, o);
-const ODY    = o=> figure(mix({beard:true, hair:'brown', dress:'marble', cloak:'red'}, o));
-const BEGGAR = o=> figure(mix({old:true, beard:true, dress:'umber', trim:'brown', fold:'brown', cloak:'brown', item:HOLD.staff}, o));
-const TEL    = o=> figure(mix({hair:'umber', dress:'marble', trim:'lapis'}, o));
-const PEN    = o=> figure(mix({female:true, dress:'purple', trim:'gold', veil:'wine', fold:'wine', hair:'brown'}, o));
-const ATH    = o=> god(mix({female:true, dress:'marble', trim:'gold', helmet:'gold', crest:'red', item:HOLD.spear, armor:'olive'}, o));
-const ZEUS   = o=> god(mix({beard:true, hair:'ash', long:true, dress:'marble', cloak:'purple', trim:'gold'}, o));
-const POS    = o=> god(mix({beard:true, hair:'ink', long:true, dress:'azure', cloak:'lapis', trim:'gold', fold:'sky', item:HOLD.trident}, o));
-const HERMES = o=> god(mix({hair:'umber', dress:'marble', trim:'gold', cloak:'red', cap:'gold', talaria:true, item:HOLD.wand}, o));
+const ODY    = o=> figure(mix({name:'Одиссей', beard:true, hair:'brown', dress:'marble', cloak:'red'}, o));
+const BEGGAR = o=> figure(mix({name:'Одиссей', old:true, beard:true, dress:'umber', trim:'brown', fold:'brown', cloak:'brown', item:HOLD.staff}, o));
+const TEL    = o=> figure(mix({name:'Телемах', hair:'umber', dress:'marble', trim:'lapis'}, o));
+const PEN    = o=> figure(mix({name:'Пенелопа', female:true, dress:'purple', trim:'gold', veil:'wine', fold:'wine', hair:'brown'}, o));
+const ATH    = o=> god(mix({name:'Афина', female:true, dress:'marble', trim:'gold', helmet:'gold', crest:'red', item:HOLD.spear, armor:'olive'}, o));
+const ZEUS   = o=> god(mix({name:'Зевс', beard:true, hair:'ash', long:true, dress:'marble', cloak:'purple', trim:'gold'}, o));
+const POS    = o=> god(mix({name:'Посейдон', beard:true, hair:'ink', long:true, dress:'azure', cloak:'lapis', trim:'gold', fold:'sky', item:HOLD.trident}, o));
+const HERMES = o=> god(mix({name:'Гермес', hair:'umber', dress:'marble', trim:'gold', cloak:'red', cap:'gold', talaria:true, item:HOLD.wand}, o));
 const SUITOR = o=> figure(mix({dress:'cream', trim:'wine', hair:'ink', cloak:'wine'}, o));
-const NURSE  = o=> figure(mix({female:true, old:true, dress:'umber', trim:'ochre', fold:'brown', veil:'ash', hair:'ash'}, o));
-const EUM    = o=> figure(mix({beard:true, hair:'brown', dress:'ochre', trim:'brown', fold:'umber'}, o));
+const NURSE  = o=> figure(mix({name:'Эвриклея', female:true, old:true, dress:'umber', trim:'ochre', fold:'brown', veil:'ash', hair:'ash'}, o));
+const EUM    = o=> figure(mix({name:'Евмей', beard:true, hair:'brown', dress:'ochre', trim:'brown', fold:'umber'}, o));
 const MAID   = o=> figure(mix({female:true, dress:'rose', trim:'red', hair:'umber', fold:'terra'}, o));
+const NAUS   = o=> MAID(mix({name:'Навсикая', dress:'rose', cap:'gold'}, o));
 const KING   = o=> figure(mix({beard:true, long:true, dress:'marble', cloak:'purple', trim:'gold', hair:'brown'}, o));
 const SAGE   = o=> figure(mix({old:true, beard:true, long:true, dress:'cream', cloak:'umber', trim:'ochre', hair:'ash'}, o));
-const CYC    = o=> figure(mix({eye:'one', beard:true, hair:'ink', skin:'umber', dress:'brown', trim:'ink', fold:'ink'}, o));
+const CYC    = o=> figure(mix({name:'Полифем', eye:'one', beard:true, hair:'ink', skin:'umber', dress:'brown', trim:'ink', fold:'ink'}, o));
+const HELEN  = o=> figure(mix({name:'Елена', female:true, dress:'azure', trim:'gold', fold:'lapis', hair:'ochre', cap:'gold'}, o));
+const CALYPSO= o=> figure(mix({name:'Калипсо', female:true, dress:'azure', trim:'gold', fold:'lapis', hair:'umber'}, o));
+const MATE   = o=> figure(mix({dress:'cream', trim:'red', hair:'umber'}, o));       // спутник Одиссея
 const SHADE  = o=> ghostFig(o);
 // спящий: ногами вправо, лицом вверх; cover — одеяло от бёдер до пят
 const lying  = (fn, x, y, s, o)=>{
@@ -2709,359 +2791,413 @@ const SONGS = [];
 
 /* I */ SONGS.push({log:'Боги решают судьбу Одиссея, а на Итаке его сын впервые поднимает голову.', scenes:[
   {t:'Совет на Олимпе', c:'Посейдон пирует у далёких эфиопов, и боги без него сходятся на совет. Афина просит Зевса: пора отпустить Одиссея с острова нимфы Калипсо домой.',
-   d:()=>{
-     bg('sky'); cloud(60,250,1.4,'marble'); cloud(250,262,1.6,'marble'); cloud(330,40,0.8,'marble');
+   d:(k,s)=>{
+     bg('sky'); cloud(60+s*3,250,1.4,'marble'); cloud(250-s*2,262,1.6,'marble'); cloud(320+s*2,40,0.8,'marble');
      column(40,300,250,{cap:'gold'}); column(360,300,250,{cap:'gold'});
      throne(150,262,1.25);
-     ZEUS({x:150,y:262,s:1.5,pose:'sit',item:HOLD.bolt});
-     ATH({x:268,y:270,s:1.55,f:-1,pose:'point',item:null});
+     ZEUS({x:150,y:262,s:1.5,pose:poseMix('sit','sitraise',seg(k,0.75,0.9)),item:HOLD.bolt});
+     ATH({x:lerp(372,268,seg(k,0,0.45)),y:270,s:1.55,f:-1,item:null,pose:arrive(k,s,0.45,poseMix('stand','point',seg(k,0.5,0.62)))});
      owl(330,96,0.7);
    }},
   {t:'Тоска на Огигии', c:'Одиссей томится на острове нимфы. Он сидит на берегу и смотрит на море — мечтает увидеть хотя бы дым над родной Итакой.',
-   d:()=>{
+   d:(k,s)=>{
      bg('marble'); seaBand(150);
-     island(345,152,90,16,'olive');
-     circle(345,124,9,'ash'); circle(352,104,11,'ash'); circle(346,82,12,'ash'); circle(356,60,10,'ash');
+     island(345,152,90,16,'olive'); label('Итака', 345, 128);
+     for(let i=0;i<5;i++){ const q=((s*0.18 + i/5) % 1); circle(345+osc(s,0.3,i/5)*5, 140-q*110, 8+q*7, 'ash'); }
      island(110,300,300,120,'sand'); cypress(40,200,110); cypress(70,196,80);
      rock(140,232,70,36,'stone');
-     ODY({x:140,y:226,s:1.35,pose:'sitmourn'});
+     ODY({x:140,y:226,s:1.35,pose:poseMix('sitgreet','sitmourn',seg(k,0.45,0.7))});
    }},
   {t:'Гость у ворот', c:'Афина в облике Ментеса, царя тафийцев, приходит к дому Одиссея. Юный Телемах первым замечает гостя и встречает его как подобает.',
-   d:()=>{
+   d:(k,s)=>{
      porch({});
-     TEL({x:150,y:240,s:1.5,pose:'greet'});
-     figure({x:270,y:240,s:1.6,f:-1,pose:'hold',beard:true,hair:'umber',dress:'cream',cloak:'olive',trim:'umber',helmet:'bronze',crest:'ink',item:HOLD.spear});
+     TEL({x:lerp(110,150,seg(k,0.45,0.7)),y:240,s:1.5,pose:k<0.45?'stand':arrive(k,s,0.7,'greet')});
+     figure({name:'Афина-Ментес',x:lerp(420,270,seg(k,0,0.45)),y:240,s:1.6,f:-1,pose:arrive(k,s,0.45,'hold'),beard:true,hair:'umber',dress:'cream',cloak:'olive',trim:'umber',helmet:'bronze',crest:'ink',item:HOLD.spear});
    }},
   {t:'Пир женихов', c:'Женихи Пенелопы хозяйничают во дворце: режут скот, пьют вино и проедают добро пропавшего царя, требуя, чтобы она выбрала мужа.',
-   d:()=>{
+   d:(k,s)=>{
      hall({cols:[24,376]});
      amphora(66,238,1.2); amphora(334,238,1.2,'ochre');
      table(200,238,1.5);
      cup(200,170,1.1); circle(160,172,11,'terra'); circle(240,170,10,'ochre'); ellipse(178,172,9,6,'cream');
-     SUITOR({x:115,y:232,s:1.3,pose:'raise',item:HOLD.cup});
-     SUITOR({x:285,y:232,s:1.3,f:-1,pose:'point',hair:'umber',cloak:'olive',item:HOLD.cup});
+     SUITOR({name:'Антиной',x:115,y:232,s:1.3,pose:swing(s,0.35,'hold','raise'),item:HOLD.cup});
+     SUITOR({name:'Эвримах',x:285,y:232,s:1.3,f:-1,pose:swing(s,0.35,'raise','hold'),hair:'umber',cloak:'olive',item:HOLD.cup});
    }},
   {t:'Песнь Фемия', c:'Певец Фемий поёт о горьком возвращении ахейцев из-под Трои. Пенелопа в слезах просит сменить песню, но Телемах впервые твёрдо отвечает матери.',
-   d:()=>{
+   d:(k,s)=>{
      hall({cols:[200]});
-     stool(100,240,1.2);
-     figure({x:100,y:240,s:1.4,pose:'sitplay',dress:'azure',trim:'gold',hair:'umber',wreath:true,item:HOLD.lyre});
-     PEN({x:300,y:240,s:1.5,f:-1,pose:'mourn'});
+     stool(90,240,1.2);
+     figure({name:'Фемий',x:90,y:240,s:1.4,pose:swing(s,1.2,'sitplay','sitgreet'),dress:'azure',trim:'gold',hair:'umber',wreath:true,item:HOLD.lyre});
+     PEN({x:lerp(420,320,seg(k,0,0.35)),y:240,s:1.5,f:-1,pose:arrive(k,s,0.35,'mourn')});
+     TEL({x:lerp(170,215,seg(k,0.6,0.8)),y:240,s:1.35,pose:k<0.6?'stand':arrive(k,s,0.8,'point')});
    }},
   {t:'Птицей ввысь', c:'Гость исчезает, вспорхнув птицей под самую кровлю. Телемах понимает, что говорил с богиней, и в нём просыпается решимость.',
-   d:()=>{
+   d:(k,s)=>{
      hall({cols:[40,360],wall:'wine'});
      rect(140,22,120,52,'sky');
-     bird(210,60,1.25,{n:'umber',n2:'ochre',head:'marble'});
-     TEL({x:200,y:240,s:1.6,pose:'raise'});
+     const q = seg(k,0.05,0.75);
+     bird(lerp(260,205,q),lerp(190,40,q),lerp(0.9,1.25,q),{name:'Афина',n:'umber',n2:'ochre',head:'marble',flap:osc(s,1.6)});
+     TEL({x:200,y:240,s:1.6,pose:poseMix('stand','raise',seg(k,0.2,0.5))});
    }}
 ]});
 
 /* II */ SONGS.push({log:'Телемах созывает народ и решается плыть за вестями об отце.', scenes:[
   {t:'Собрание на площади', c:'Впервые за двадцать лет итакийцы сходятся на собрание. Телемах приходит с копьём, за ним бегут два быстрых пса; старый Египтий открывает речи.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); hill(310,190,300,40,'olive'); ground(236,'sand','umber');
      rect(14,192,124,46,'stone'); rect(14,192,124,7,'ash');
-     SAGE({x:70,y:236,s:1.15,pose:'sit',item:HOLD.staff});
-     TEL({x:240,y:244,s:1.55,pose:'hold',item:HOLD.spear,cloak:'lapis'});
-     beast(170,256,0.95,'hound'); beast(320,256,1.0,'hound',{f:-1});
+     SAGE({name:'Египтий',x:70,y:236,s:1.15,pose:k<0.6?'sit':swing(s,0.5,'sit','sitgreet'),item:HOLD.staff});
+     const x = lerp(430,240,seg(k,0,0.55));
+     TEL({x,y:244,s:1.55,f:-1,pose:arrive(k,s,0.55,'hold'),item:HOLD.spear,cloak:'lapis'});
+     beast(x-56,256,0.95,'hound',{f:-1,gait:k<0.55?s*9:0}); beast(x+60,258,1.0,'hound',{f:-1,gait:k<0.55?s*9+1:0});
    }},
   {t:'Хитрость Пенелопы', c:'Антиной винит во всём Пенелопу: три года она ткала саван для старого Лаэрта — днём ткала, а ночью распускала, пока служанка её не выдала.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); ground(250,'brown','umber');
      rect(36,40,70,80,'lapis'); moon(70,72,16); rect(36,40,70,6,'umber'); rect(36,114,70,6,'umber');
-     loom(270,250,1.45,{woven:58});
-     PEN({x:160,y:250,s:1.5,pose:'point'});
+     loom(270,250,1.45,{woven:44 + 30*(0.5+0.5*osc(s,0.18,0.25))});   // ткань то растёт, то тает
+     PEN({x:165,y:250,s:1.5,pose:swing(s,0.9,'point','greet')});
      line('umber',3,[60,250,60,170]); lamp(58,170,1.1);
    }},
   {t:'Два орла', c:'Зевс посылает знамение: два орла кружат над собранием и рвут друг друга когтями. Старый птицегадатель предрекает: Одиссей близко, женихам грозит гибель.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); cloud(60,60,0.8,'marble'); cloud(320,40,0.7,'marble');
      ground(250,'sand'); city(250,3);
-     bird(140,120,1.7,{n:'umber',n2:'brown',head:'umber',rot:-0.25});
-     bird(260,112,1.7,{n:'brown',n2:'umber',head:'brown',f:-1,rot:0.2});
-     ellipse(200,170,4,2,'umber',0.6); ellipse(186,190,4,2,'brown',-0.4); ellipse(214,200,4,2,'umber',0.3);
+     const c = seg(k,0,0.5), a = s*1.4;
+     const r = lerp(120,26,c);
+     bird(200+Math.cos(a)*r*1.2-30, 120+Math.sin(a)*r*0.4, 1.6, {n:'umber',n2:'brown',head:'umber',flap:osc(s,1.5),rot:-0.25});
+     bird(200-Math.cos(a)*r*1.2+30, 112-Math.sin(a)*r*0.4, 1.6, {n:'brown',n2:'umber',head:'brown',f:-1,flap:osc(s,1.5,0.5),rot:0.2});
+     label('орлы Зевса', 200, 52);
+     for(let i=0;i<6;i++){ const q=((s*0.3+i/6)%1); if(k>0.4) ellipse(180+i*9+osc(s,0.6,i/6)*8, 150+q*90, 4, 2, i%2?'umber':'brown', q*3); }
    }},
   {t:'Сборы в дорогу', c:'Эвриклея тайком наполняет кувшины вином и мешки мукой. Она плачет и молит юношу не уходить, но он велит ей молчать о его отплытии.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'umber',frieze:'brown',cols:[]});
      for(let i=0;i<4;i++) amphora(36+i*36,238,1.15,i%2?'ochre':'terra');
      ellipse(330,228,26,14,'cream'); ellipse(360,220,22,12,'sand');
-     NURSE({x:205,y:238,s:1.45,pose:'mourn'});
-     TEL({x:300,y:238,s:1.5,f:-1,pose:'greet'});
+     NURSE({x:lerp(150,205,seg(k,0,0.4)),y:238,s:1.45,pose:k<0.4?walking(s,1):poseMix('carry','mourn',seg(k,0.42,0.55)),item:k<0.42?h=>amphora(h[0],h[1]+8,0.55,'terra'):null});
+     TEL({x:300,y:238,s:1.5,f:-1,pose:poseMix('stand','greet',seg(k,0.55,0.7))});
    }},
   {t:'Ночное отплытие', c:'Афина в облике Ментора собирает гребцов. Ночью корабль уходит в Пилос, и богиня посылает ему попутный ветер.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(30,21,150); moon(336,48,18);
      seaBand(176,{dark:true});
-     ship(200,214,1.3);
-     SAGE({x:110,y:190,s:0.6,halo:true,pose:'point'});
-     curve('ghost',4,'M20,90 q30,-12 60,0'); curve('ghost',4,'M24,106 q24,-8 48,0');
+     const x = lerp(140,290,seg(k,0,1)), y = 214 + osc(s,0.5)*2;
+     ship(x,y,1.3);
+     SAGE({name:'Ментор (Афина)',x:x-90,y:y-24,s:0.6,halo:true,pose:'point'});
+     for(let i=0;i<3;i++){ const q=((s*0.4+i/3)%1); curve('ghost',4,`M${q*200-20},${80+i*16} q30,-12 60,0`); }
    }}
 ]});
 
 /* III */ SONGS.push({log:'Телемах ищет вестей у мудрого Нестора — старейшего из героев Трои.', scenes:[
   {t:'Жертва на берегу', c:'На песчаном берегу Пилоса народ приносит Посейдону в жертву чёрных быков. Сюда и причаливает корабль Телемаха.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(130);
-     ship(80,170,0.75);
+     const sx = lerp(-80,80,seg(k,0,0.6));
+     ship(sx,170+osc(s,0.5)*1.5,0.75); label('корабль Телемаха', sx, 82);
      shape('sand','M0,300 L0,200 Q120,176 400,190 L400,300 Z');
      rect(256,200,46,40,'cream'); rect(250,196,58,8,'ochre'); fire(279,196,1.1);
      beast(150,262,1.25,'bull'); beast(330,272,1.15,'bull',{f:-1});
-     figure({x:220,y:270,s:0.95,pose:'bothup',long:true,beard:true,dress:'marble',wreath:true});
+     figure({name:'Нестор',x:220,y:270,s:0.95,pose:swing(s,0.4,'bothup','raise'),long:true,beard:true,old:true,hair:'ash',dress:'marble',wreath:true});
    }},
   {t:'Рассказ Нестора', c:'Старый Нестор рассказывает, кто из ахейцев вернулся из-под Трои, как Эгист погубил Агамемнона и как Орест отомстил за отца. Об Одиссее он не знает ничего.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
      throne(110,240,1.3);
-     SAGE({x:110,y:240,s:1.45,pose:'sit',cloak:'purple',trim:'gold',item:HOLD.scepter});
+     SAGE({name:'Нестор',x:110,y:240,s:1.45,pose:swing(s,0.3,'sit','sitgreet'),cloak:'purple',trim:'gold',item:HOLD.scepter});
      krater(205,240,1.2);
-     TEL({x:285,y:240,s:1.5,f:-1,pose:'stand'});
+     TEL({x:285,y:240,s:1.5,f:-1,pose:k<0.7?'stand':poseMix('stand','mourn',seg(k,0.7,0.85))});
    }},
   {t:'Морской орёл', c:'Ментор вдруг обращается морским орлом и улетает. Нестор понимает: юношу сопровождает сама Афина.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(196); ground(232,'sand');
-     sparkles(200,40,140,90,7,16);
-     bird(270,92,1.9,{n:'ash',n2:'marble',head:'marble',beak:'gold'});
-     SAGE({x:100,y:254,s:1.35,pose:'bothup',cloak:'purple'});
-     TEL({x:170,y:254,s:1.3,pose:'raise'});
+     if(k<0.3) SAGE({name:'Ментор',x:250,y:254,s:1.35,halo:true,pose:'stand'});
+     if(k>0.2 && k<0.5) sparkles(200,110,100,150,Math.floor(s*6),20);
+     if(k>=0.3){ const q = seg(k,0.3,0.9); bird(lerp(250,300,q),lerp(190,70,q),lerp(1.2,1.9,q),{name:'Афина',n:'ash',n2:'marble',head:'marble',beak:'gold',flap:osc(s,1.3)}); }
+     SAGE({name:'Нестор',x:96,y:254,s:1.35,pose:poseMix('stand','bothup',seg(k,0.3,0.45)),cloak:'purple'});
+     TEL({x:160,y:254,s:1.3,pose:poseMix('stand','raise',seg(k,0.35,0.5))});
    }},
   {t:'Золотые рога', c:'Наутро Нестор приносит Афине в жертву телицу. Золотых дел мастер покрывает ей рога золотом, чтобы дар был угоден богине.',
-   d:()=>{
+   d:(k,s)=>{
      bg('marble'); ground(236,'sand','umber');
      rect(272,184,58,52,'cream'); rect(266,178,70,8,'ochre'); fire(301,178,1.3);
-     beast(150,244,1.7,'cow',{gilded:true});
-     sparkles(150,110,70,40,4,8);
+     const g = k>0.45;
+     beast(lerp(60,150,seg(k,0,0.35)),244,1.7,'cow',{gilded:g,gait:k<0.35?s*7:0,name:'телица'});
+     if(k>0.35 && k<0.6) sparkles(170,100,60,50,Math.floor(s*5),10);
+     figure({name:'мастер',x:lerp(300,236,seg(k,0.1,0.35)),y:256,s:1.0,f:-1,pose:k<0.35?walking(s):swing(s,1.5,'strike','stand'),dress:'umber',trim:'ochre',beard:true,item:k>0.35?h=>{ line('brown',3,[h[0],h[1],h[0]+2,h[1]-14]); rect(h[0]-4,h[1]-20,10,7,'slate'); }:null});
    }},
   {t:'В Спарту', c:'Сын Нестора Писистрат берёт вожжи, и два дня колесница мчит юношей через равнины в Спарту.',
-   d:()=>{
-     bg('sky'); hill(300,196,320,44,'olive'); hill(70,196,240,30,'leaf'); ground(196,'ochre'); rect(0,230,400,26,'sand');
-     chariot(150,258,1.35,{riders:()=>{
+   d:(k,s)=>{
+     bg('sky'); hill(300-s*4,196,320,44,'olive'); hill(70-s*4,196,240,30,'leaf'); ground(196,'ochre'); rect(0,230,400,26,'sand');
+     const x = lerp(-60,250,seg(k,0,0.9));
+     chariot(x,258,1.35,{riders:()=>{
        TEL({x:-24,y:-24,s:0.62,pose:'stand'});
-       figure({x:-8,y:-24,s:0.62,pose:'point',hair:'ink',dress:'cream',trim:'red'});
+       figure({name:'Писистрат',x:-8,y:-24,s:0.62,pose:'point',hair:'ink',dress:'cream',trim:'red'});
      }});
    }}
 ]});
 
 /* IV */ SONGS.push({log:'В Спарте Телемах узнаёт: отец жив, но заперт на острове нимфы.', scenes:[
   {t:'Сияющий дворец', c:'Во дворце Менелая играют двойную свадьбу. Телемах дивится: медь, золото, серебро и янтарь сверкают, как в чертогах самого Зевса.',
-   d:()=>{
+   d:(k,s)=>{
      bg('lapis'); rect(0,0,SW,22,'gold'); for(let x=8;x<SW;x+=26) rect(x,7,12,8,'lapis');
      ground(238,'cream','gold');
      [40,130,270,360].forEach(x=> column(x,238,216,{n:'gold2',flute:'gold',cap:'gold'}));
      throne(200,238,1.2,'silver');
-     KING({x:200,y:238,s:1.35,pose:'sit',cloak:'red',hair:'ochre',item:HOLD.staff});
+     KING({name:'Менелай',x:200,y:238,s:1.35,pose:poseMix('sit','sitgreet',seg(k,0.5,0.65)),cloak:'red',hair:'ochre',item:HOLD.staff});
      krater(318,238,1.0,'silver');
-     TEL({x:86,y:238,s:1.2,pose:'raise'});
+     TEL({x:lerp(-20,90,seg(k,0,0.45)),y:238,s:1.2,pose:arrive(k,s,0.45,'raise')});
    }},
   {t:'Снадобье Елены', c:'Елена подмешивает в вино египетское снадобье: кто выпьет его, тот весь день не прольёт слёз, даже если на глазах погибнут родные.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
      krater(220,240,1.6);
-     figure({x:130,y:240,s:1.55,female:true,dress:'azure',trim:'gold',fold:'lapis',hair:'ochre',cap:'gold',pose:'point'});
-     circle(212,150,3,'gold2'); circle(216,162,3,'gold2'); circle(210,172,3,'gold2');
+     HELEN({x:130,y:240,s:1.55,pose:poseMix('stand','point',seg(k,0,0.25))});
+     if(k>0.25) for(let i=0;i<4;i++){ const q=((s*0.8+i/4)%1); circle(214+osc(s,0.5,i/4)*2,138+q*36,3,'gold2'); }
+     sparkles(190,150,60,20,Math.floor(s*4),6);
    }},
   {t:'Протей среди тюленей', c:'Менелай вспоминает, как на острове Фарос, укрывшись тюленьей шкурой, схватил морского старца Протея. Тот оборачивался львом, змеем и водой, но не вырвался.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(140);
      shape('sand','M0,300 L0,210 Q200,186 400,214 L400,300 Z');
-     seal(70,246,1.1,1); seal(336,250,1.2,-1); seal(120,282,0.9,1);
-     figure({x:175,y:262,s:1.4,pose:'hug',beard:true,hair:'ochre',dress:'cream',trim:'red',helmet:'bronze',crest:'red'});
-     figure({x:232,y:262,s:1.35,f:-1,pose:'bothup',old:true,beard:true,long:true,dress:'azure',fold:'lapis',trim:'sea',hair:'ash'});
+     seal(70+osc(s,0.3)*3,246,1.1,1); seal(336,250,1.2,-1); seal(120,282,0.9,1);
+     // старец меняет облик прямо в руках у Менелая
+     const stage = Math.min(4, Math.floor(k*5));
+     if(stage===0 || stage===4) figure({name:'Протей',x:232,y:262,s:1.35,f:-1,pose:swing(s,1.4,'bothup','plead'),old:true,beard:true,long:true,dress:'azure',fold:'lapis',trim:'sea',hair:'ash'});
+     else if(stage===1){ beast(238,262,2.0,'dog',{n:'ochre',f:-1,name:'лев'}); circle(214,206,14,'umber'); }
+     else if(stage===2){ curve('olive',14,`M190,${250+osc(s,1)*6} q24,-60 40,-20 t40,-40`); circle(272,174,9,'olive'); label('змей',250,160); }
+     else { ellipse(234,226,40,30,'azure'); ellipse(226,212,22,14,'foam'); label('вода',234,190); }
+     figure({name:'Менелай',x:175,y:262,s:1.4,pose:'hug',beard:true,hair:'ochre',dress:'cream',trim:'red',helmet:'bronze',crest:'red',lean:osc(s,1.2)*0.08});
    }},
   {t:'Вести о Калипсо', c:'Протей открыл: Одиссей жив и томится на острове нимфы Калипсо — у него нет ни корабля, ни спутников, чтобы вернуться.',
-   d:()=>{
+   d:(k,s)=>{
      bg('marble'); seaBand(160);
      island(200,300,340,130,'sand'); cypress(70,214,96); cypress(330,212,90);
      cave(190,236,90,90,'brown'); vine(140,150,110);
+     label('остров Огигия', 200, 178);
      ODY({x:120,y:254,s:1.3,pose:'sitmourn'});
-     figure({x:270,y:254,s:1.45,f:-1,female:true,dress:'azure',trim:'gold',fold:'lapis',hair:'umber',pose:'greet'});
+     CALYPSO({x:lerp(330,270,seg(k,0.1,0.5)),y:254,s:1.45,f:-1,pose:arrive(k,s,0.5,'greet')});
    }},
   {t:'Засада и вещий сон', c:'На Итаке женихи готовят засаду, чтобы убить Телемаха на обратном пути. Пенелопа в отчаянии, и Афина посылает ей утешительный сон — призрак её сестры.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(14,5,110); ground(250,'brown');
      bed(230,250,1.3);
      lying(PEN, 318, 190, 1.05, {veil:null, cover:'wine'});
-     SHADE({x:90,y:250,s:1.45,female:true,pose:'point',hair:'ash'});
+     SHADE({name:'призрак сестры',x:lerp(20,96,seg(k,0,0.5)),y:250+osc(s,0.4)*4,s:1.45,female:true,pose:poseMix('stand','point',seg(k,0.5,0.65)),hair:'ash'});
+     if(k>0.5) sparkles(130,120,120,60,Math.floor(s*3),8);
    }}
 ]});
 
 /* V */ SONGS.push({log:'Боги отпускают Одиссея, но Посейдон ещё не сказал последнего слова.', scenes:[
   {t:'Вестник Зевса', c:'Гермес в золотых сандалиях несётся над волнами к острову Огигия: Зевс велит нимфе Калипсо отпустить Одиссея.',
-   d:()=>{
-     bg('sky'); cloud(70,50,0.9,'marble'); seaBand(196); island(340,198,120,30,'olive'); cypress(330,176,40); cypress(350,176,34);
-     HERMES({x:180,y:186,s:1.4,pose:'run',rot:0.2});
+   d:(k,s)=>{
+     bg('sky'); cloud(70-s*6,50,0.9,'marble'); seaBand(196); island(340,198,120,30,'olive'); cypress(330,176,40); cypress(350,176,34);
+     label('Огигия', 340, 150);
+     HERMES({x:lerp(30,250,seg(k,0,0.9)),y:186+osc(s,0.7)*8,s:1.4,pose:poseMix('run','run2',0.5+0.5*osc(s,1.2)),rot:0.2});
    }},
   {t:'Пещера нимфы', c:'Калипсо скрепя сердце покоряется. Нимфа сулила Одиссею бессмертие, но он каждый день плачет на берегу, глядя в сторону дома.',
-   d:()=>{
+   d:(k,s)=>{
      bg('marble'); ground(232,'olive','leaf');
      cave(200,232,180,170,'brown'); vine(108,84,190);
      fire(200,228,1.3);
      cypress(36,236,130); cypress(366,236,120);
-     HERMES({x:110,y:250,s:1.4,pose:'greet'});
-     figure({x:290,y:250,s:1.5,f:-1,female:true,dress:'azure',trim:'gold',fold:'lapis',hair:'umber',pose:'mourn'});
+     HERMES({x:110,y:250,s:1.4,pose:swing(s,0.5,'greet','point')});
+     CALYPSO({x:290,y:250,s:1.5,f:-1,pose:poseMix('greet','mourn',seg(k,0.4,0.6))});
    }},
   {t:'Плот', c:'Медным топором Одиссей валит двадцать деревьев и за четыре дня сбивает плот. Калипсо даёт ему парус, вино и хлеб в дорогу.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(170); ground(212,'sand');
      cypress(40,214,100); rect(70,200,10,14,'umber'); rect(96,204,10,10,'umber');
-     raft(270,252,1.3);
+     // плот собирается брёвнышко за брёвнышком
+     const logs = Math.floor(lerp(2,10,seg(k,0,0.75)));
+     for(let i=0;i<logs;i++) rect(220+i*11,242,10,10,i%2?'umber':'ochre');
+     if(k>0.75){ raft(270,252,1.3); }
      rect(60,262,90,9,'umber'); rect(70,274,96,9,'ochre');
-     ODY({x:150,y:252,s:1.4,pose:'strike',cloak:null,item:h=>axe(h[0],h[1]+16,0.85)});
+     ODY({x:150,y:252,s:1.4,cloak:null,pose:k<0.75?swing(s,1.4,'strike','stand'):'stand',item:h=>axe(h[0],h[1]+16,0.85)});
    }},
   {t:'Буря Посейдона', c:'Семнадцать дней он плывёт по звёздам. На восемнадцатый Посейдон замечает беглеца, хватает трезубец и обрушивает на плот бурю.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate');
-     POS({x:300,y:200,s:1.5,f:-1,pose:'raise'});
+     POS({x:300,y:lerp(260,200,seg(k,0,0.35)),s:1.5,f:-1,pose:poseMix('stand','raise',seg(k,0.3,0.5))});
      cloud(250,170,1.4,'stone'); cloud(350,186,1.2,'ash'); cloud(70,40,1.0,'stone');
-     bolt(150,60,1.2,0.3);
-     wavesBig(166);
-     at(120,236,0.9,()=> raft(0,0,1), false, -0.35);
+     if(k>0.5 && osc(s,1.1)>0.2) bolt(150,60,1.2,0.3);
+     wavesBig(166, k>0.4 ? s*1.6 : s*0.4);
+     at(120,236+osc(s,0.7)*6,0.9,()=> raft(0,0,1), false, -0.35*seg(k,0.4,0.6) + osc(s,0.6)*0.18);
+     label('Одиссей', 120, 136);
    }},
   {t:'Покрывало Левкотеи', c:'Плот разбит в щепы. Морская богиня Ино-Левкотея дарит Одиссею чудесное покрывало, и он двое суток плывёт, пока не добирается до земли феаков.',
-   d:()=>{
-     bg('sky'); island(360,150,120,22,'olive');
+   d:(k,s)=>{
+     bg('sky'); island(360,150,120,22,'olive'); label('земля феаков', 352, 126);
      seaBand(146,{seed:4});
-     bird(280,84,1.1,{n:'marble',n2:'ash',head:'marble',beak:'ochre',f:-1});
-     sparkles(250,60,70,50,9,8);
-     ODY({x:96,y:214,s:1.15,rot:Math.PI/2,pose:'bothup',cloak:null,eye:'none'});
-     veil(120,214,1.3,-0.1);
+     const bx = lerp(330,150,seg(k,0,0.4));
+     bird(bx,84+osc(s,0.6)*6,1.1,{name:'Левкотея',n:'marble',n2:'ash',head:'marble',beak:'ochre',f:-1,flap:osc(s,1.5)});
+     const sx = lerp(70,190,seg(k,0.35,1));
+     ODY({x:sx,y:214,s:1.15,rot:Math.PI/2,pose:swing(s,0.8,'bothup','raise'),cloak:null,eye:'none'});
+     const vq = seg(k,0.25,0.45);
+     veil(lerp(bx-20,sx+16,vq), lerp(96,212,vq), 1.3, -0.1);
    }},
   {t:'Ложе из листьев', c:'Обессиленный, он заползает под два сросшихся куста — маслину и дичок — и засыпает в ворохе сухих листьев.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(18,8,140); moon(70,50,16);
      ground(206,'leaf','olive');
      bush(130,214,1.7,'olive'); bush(250,214,1.6,'leaf');
-     const r = rnd(12); for(let i=0;i<34;i++) ellipse(70+r()*270, 236+r()*36, 9, 4.5, r()<0.5?'ochre':'umber', r()*3);
+     const r = rnd(12), n = Math.floor(lerp(12,34,seg(k,0,0.8)));
+     for(let i=0;i<n;i++) ellipse(70+r()*270, 236+r()*36, 9, 4.5, r()<0.5?'ochre':'umber', r()*3);
+     for(let i=0;i<4;i++){ const q=((s*0.25+i/4)%1); ellipse(150+i*40+osc(s,0.5,i/4)*10, 200+q*60, 8, 4, 'ochre', q*4); }
      lying(ODY, 300, 258, 1.05, {cloak:'red'});
    }}
 ]});
 
 /* VI */ SONGS.push({log:'Царевна феаков находит на берегу нагого скитальца.', scenes:[
   {t:'Сон Навсикаи', c:'Афина является во сне царевне Навсикае в облике её подруги и велит наутро ехать к реке стирать нарядные одежды.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(12,31,110); ground(250,'brown');
      bed(240,250,1.25);
-     lying(MAID, 324, 192, 1.0, {dress:'rose', cover:'azure'});
-     figure({x:96,y:250,s:1.45,female:true,halo:true,dress:'azure',trim:'gold',fold:'lapis',hair:'umber',pose:'point'});
+     lying(NAUS, 324, 192, 1.0, {cap:null, cover:'azure'});
+     figure({name:'Афина',x:lerp(40,100,seg(k,0,0.4)),y:250,s:1.45,female:true,halo:true,dress:'azure',trim:'gold',fold:'lapis',hair:'umber',pose:arrive(k,s,0.4,swing(s,0.4,'point','greet'))});
+     if(k>0.4) sparkles(150,120,140,60,Math.floor(s*3),8);
    }},
   {t:'У реки', c:'Навсикая с подругами едет на повозке, запряжённой мулами. У устья реки они стирают одежды в прозрачных водоёмах и раскладывают их сушиться.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(150,'olive','leaf');
      shape('sea','M0,300 L0,230 Q200,196 400,226 L400,300 Z');
-     cart(110,196,0.95);
-     rect(250,186,30,12,'marble'); rect(290,182,26,12,'azure'); rect(326,188,30,12,'rose');
-     MAID({x:200,y:262,s:1.1,pose:'dig'});
-     figure({x:330,y:262,s:1.15,female:true,dress:'azure',trim:'gold',hair:'brown',pose:'dig',f:-1});
+     cart(lerp(-60,110,seg(k,0,0.3)),196,0.95);
+     const dry = Math.floor(lerp(0,3.99,seg(k,0.4,0.95)));
+     [['marble',250,186],['azure',290,182],['rose',326,188]].slice(0,dry).forEach(([n,x,y])=> rect(x,y,30,12,n));
+     MAID({x:200,y:262,s:1.1,pose:swing(s,0.8,'dig','crouch')});
+     NAUS({x:330,y:262,s:1.15,f:-1,dress:'azure',cap:'gold',pose:swing(s,0.8,'crouch','dig')});
    }},
   {t:'Мяч в воде', c:'Девушки играют в мяч. Он падает в глубокую воду, и звонкий крик будит Одиссея, спящего в кустах.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(214,'olive','leaf');
      shape('sea','M260,300 Q300,240 400,236 L400,300 Z');
-     bush(360,214,1.0,'leaf');
-     MAID({x:110,y:250,s:1.45,pose:'raise',dress:'rose',cap:'gold'});
-     MAID({x:200,y:254,s:1.3,pose:'bothup',dress:'azure',trim:'gold'});
-     ball(300,110,10); curve('ash',3,'M210,120 Q260,60 290,104');
+     const q = seg(k,0.1,0.6);
+     if(k<0.6) ball(lerp(130,330,q), 110+arc(q,70)+(1-q)*20, 10);
+     else { ellipse(330,262,22-12*seg(k,0.6,0.9),6,'foam'); }
+     if(k>0.75){ circle(366,200,9,'skin'); circle(364,197,9,'brown'); circle(367,201,7.4,'skin'); label('Одиссей', 366, 180); }
+     bush(360,214,1.0+0.04*osc(s,3)*(k>0.7?1:0),'leaf');
+     NAUS({x:110,y:250,s:1.45,pose:poseMix('raise','bothup',seg(k,0.55,0.65))});
+     MAID({x:200,y:254,s:1.3,pose:poseMix('bothup','raise',seg(k,0.05,0.15)),dress:'azure',trim:'gold'});
    }},
   {t:'Нагой скиталец', c:'Одиссей выходит из чащи, прикрывшись ветвью. Служанки в страхе разбегаются, и лишь Навсикая остаётся — Афина вложила ей в сердце смелость.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(232,'olive','leaf'); bush(50,240,1.3,'leaf');
-     ODY({x:120,y:254,s:1.5,pose:'stand',dress:'skin',trim:'skin',fold:'skin',cloak:null,item:h=>branch(h[0]+4,h[1]+20,1.25,0.1)});
-     MAID({x:270,y:254,s:1.5,f:-1,pose:'stand',dress:'rose',cap:'gold'});
-     MAID({x:360,y:254,s:1.0,pose:'run',dress:'azure'});
+     ODY({x:lerp(40,120,seg(k,0,0.4)),y:254,s:1.5,pose:arrive(k,s,0.4,'stand'),dress:'skin',trim:'skin',fold:'skin',cloak:null,item:h=>branch(h[0]+4,h[1]+20,1.25,0.1)});
+     NAUS({x:270,y:254,s:1.5,f:-1,pose:poseMix('stand','greet',seg(k,0.6,0.75))});
+     MAID({x:lerp(300,440,seg(k,0.25,0.8)),y:254,s:1.0,pose:poseMix('run','run2',0.5+0.5*osc(s,1.6)),dress:'azure'});
    }},
   {t:'Путь во дворец', c:'Царевна даёт ему одежду и советует: в городе иди прямо во дворец и припади к коленям моей матери, царицы Ареты.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); hill(290,170,300,46,'olive'); city(150,9); ground(210,'ochre'); rect(0,232,400,20,'sand');
-     ODY({x:110,y:258,s:1.45,pose:'stand'});
-     MAID({x:230,y:258,s:1.45,pose:'point',dress:'rose',cap:'gold'});
+     label('город феаков', 230, 92);
+     ODY({x:lerp(110,170,seg(k,0.55,1)),y:258,s:1.45,pose:k<0.55?'stand':walking(s,1)});
+     NAUS({x:230,y:258,s:1.45,pose:poseMix('stand','point',seg(k,0.1,0.3))});
    }}
 ]});
 
 /* VII */ SONGS.push({log:'Чудесный дворец феаков принимает безымянного гостя.', scenes:[
   {t:'В облаке тумана', c:'Афина в облике девушки с кувшином провожает Одиссея в город и окутывает его туманом, чтобы никто из гордых феаков его не задел.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); wall(0,120,400,110); rect(150,150,100,80,'brown'); ground(230,'sand','umber');
-     figure({x:120,y:254,s:1.4,female:true,halo:true,dress:'azure',trim:'gold',fold:'lapis',hair:'umber',pose:'carry',item:h=>amphora(h[0],h[1]+8,0.62,'terra')});
-     mist(270,258,1.15);
-     ODY({x:270,y:254,s:1.5,f:-1,pose:'walk'});
-     mist(270,258,1.15,true);
+     const x = lerp(60,150,seg(k,0,1));
+     figure({name:'Афина',x,y:254,s:1.4,female:true,halo:true,dress:'azure',trim:'gold',fold:'lapis',hair:'umber',pose:poseMix('carry','carry',0),item:h=>amphora(h[0],h[1]+8,0.62,'terra')});
+     const ox = x+150;
+     mist(ox,258,1.15+osc(s,0.3)*0.05);
+     ODY({x:ox,y:254,s:1.5,f:-1,pose:walking(s,1)});
+     mist(ox,258,1.15,true);
    }},
   {t:'Чертог Алкиноя', c:'Медные стены, золотые двери, серебряные косяки. У входа — золотые и серебряные псы, выкованные Гефестом, чтобы вечно стеречь дом.',
-   d:()=>{
+   d:(k,s)=>{
      bg('terra'); rect(0,0,SW,30,'lapis'); for(let x=10;x<SW;x+=30) rect(x,10,14,10,'gold2');
      ground(250,'cream','ochre');
-     rect(146,70,108,180,'silver'); rect(156,80,88,170,'gold'); rect(198,80,4,170,'ochre');
-     rect(164,96,30,50,'gold2'); rect(206,96,30,50,'gold2'); rect(164,160,30,60,'gold2'); rect(206,160,30,60,'gold2');
+     rect(146,70,108,180,'silver'); rect(156,80,88,170,'ink');
+     const o = seg(k,0.2,0.7)*36;   // створки расходятся
+     rect(156,80,44-o,170,'gold'); rect(200+o,80,44-o,170,'gold');
+     if(44-o>10){ rect(164,96,Math.max(4,30-o),50,'gold2'); rect(206+o,96,Math.max(4,30-o),50,'gold2'); }
      rect(30,206,80,20,'stone'); rect(290,206,80,20,'stone');
-     beast(70,206,1.3,'dog',{n:'gold'}); beast(330,206,1.3,'dog',{n:'silver',f:-1});
+     beast(70,206,1.3,'dog',{n:'gold',name:'золотой пёс'}); beast(330,206,1.3,'dog',{n:'silver',f:-1,name:'серебряный пёс'});
+     if(k>0.5) ODY({x:lerp(240,200,seg(k,0.5,0.9)),y:262,s:0.9,pose:walking(s,1),f:-1});
    }},
   {t:'Вечный сад', c:'За двором — сад, где груши, гранаты, яблоки, смоквы и маслины зреют круглый год: одни плоды наливаются, пока другие цветут.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(226,'olive','leaf');
      ellipse(200,270,90,18,'sea');
-     tree(66,236,1.2,{fruit:'gold',seed:1}); tree(166,228,1.45,{fruit:'red',seed:2});
-     tree(272,234,1.25,{fruit:'gold2',seed:3}); tree(360,232,1.1,{fruit:'purple',seed:4});
+     label('сад Алкиноя', 200, 30);
+     // плоды наливаются цветом по очереди
+     tree(66,236,1.2,{fruit:k>0.15?'gold':'marble',seed:1}); tree(166,228,1.45,{fruit:k>0.35?'red':'marble',seed:2});
+     tree(272,234,1.25,{fruit:k>0.55?'gold2':'marble',seed:3}); tree(360,232,1.1,{fruit:k>0.75?'purple':'marble',seed:4});
+     for(let i=0;i<3;i++){ const q=((s*0.15+i/3)%1); bird(40+q*340, 60+i*20+osc(s,0.5,i)*6, 0.35, {n:'ash',flap:osc(s,2,i/3)}); }
    }},
   {t:'У колен Ареты', c:'Туман рассеивается, и все видят чужеземца у ног царицы Ареты. Одиссей обнимает её колени и молит помочь ему вернуться домой.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
      throne(338,240,1.25,'gold',true);
-     KING({x:338,y:240,s:1.35,f:-1,pose:'sit',cloak:'lapis',item:HOLD.staff});
+     KING({name:'Алкиной',x:338,y:240,s:1.35,f:-1,pose:poseMix('sit','sitgreet',seg(k,0.6,0.75)),cloak:'lapis',item:HOLD.staff});
      throne(250,240,1.3,'gold',true);
-     figure({x:250,y:240,s:1.4,f:-1,female:true,long:true,dress:'lapis',trim:'gold',fold:'azure',hair:'brown',cap:'gold',pose:'sit'});
+     figure({name:'Арета',x:250,y:240,s:1.4,f:-1,female:true,long:true,dress:'lapis',trim:'gold',fold:'azure',hair:'brown',cap:'gold',pose:'sit'});
      ODY({x:150,y:240,s:1.5,pose:'kneel'});
+     const m = 1 - seg(k,0,0.45);
+     if(m>0.05) at(150,244,1.15*m+0.2,()=> mist(0,0,1));
    }},
   {t:'Обещание царя', c:'Алкиной сажает гостя на почётное место у очага и обещает: феаки довезут его до родины на своём быстром корабле.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'wine',cols:[30,370]});
-     rect(140,40,120,80,'sky'); rect(140,90,120,30,'sea'); ship(200,112,0.42); rect(140,36,120,6,'ochre'); rect(140,118,120,6,'ochre');
+     rect(140,40,120,80,'sky'); rect(140,90,120,30,'sea');
+     C.save(); C.beginPath(); C.rect(140,40,120,80); C.clip(); ship(lerp(110,290,seg(k,0.3,1)),112,0.42); C.restore();
+     rect(140,36,120,6,'ochre'); rect(140,118,120,6,'ochre');
      fire(200,236,1.1);
      throne(100,240,1.3);
-     KING({x:100,y:240,s:1.4,pose:'sit',cloak:'lapis',item:HOLD.staff});
-     ODY({x:300,y:240,s:1.5,f:-1,pose:'greet'});
+     KING({name:'Алкиной',x:100,y:240,s:1.4,pose:swing(s,0.35,'sitgreet','sit'),cloak:'lapis',item:HOLD.staff});
+     ODY({x:300,y:240,s:1.5,f:-1,pose:poseMix('stand','greet',seg(k,0.5,0.65))});
    }}
 ]});
 
 /* VIII */ SONGS.push({log:'Песни слепого певца трогают сердце безымянного гостя.', scenes:[
   {t:'Слёзы под плащом', c:'Слепой певец Демодок поёт о ссоре Одиссея с Ахиллом. Одиссей прячет лицо под пурпурным плащом, чтобы феаки не видели его слёз.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[200]});
      stool(100,240,1.2);
-     figure({x:100,y:240,s:1.4,pose:'sitplay',old:true,beard:true,long:true,dress:'azure',trim:'gold',eye:'none',wreath:true,item:HOLD.lyre});
-     ODY({x:300,y:240,s:1.5,f:-1,pose:'mourn',dress:'purple',cloak:'purple',veil:'purple'});
+     figure({name:'Демодок',x:100,y:240,s:1.4,pose:swing(s,1.3,'sitplay','sitgreet'),old:true,beard:true,long:true,dress:'azure',trim:'gold',eye:'none',wreath:true,item:HOLD.lyre});
+     const v = seg(k,0.35,0.55);
+     ODY({x:300,y:240,s:1.5,f:-1,pose:poseMix('stand','mourn',v),dress:'purple',cloak:'purple',veil:v>0.5?'purple':null});
    }},
   {t:'Диск', c:'Эвриал насмехается над гостем: ты, мол, не атлет, а торгаш. Одиссей молча берёт самый тяжёлый диск и бросает его дальше всех меток.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(222,'sand','umber');
      for(let x=230;x<380;x+=40) rect(x,228,5,14,'umber');
-     ODY({x:120,y:256,s:1.5,pose:'throw',cloak:null,front:(h,b)=> discus(b[0],b[1]-6,9)});
-     curve('ash',3,'M220,110 Q280,70 330,104'); discus(338,110,10);
-     figure({x:330,y:256,s:1.1,f:-1,pose:'point',hair:'ink',dress:'cream',trim:'sea'});
+     const w = seg(k,0.15,0.4), t = seg(k,0.4,0.85);
+     ODY({x:120,y:256,s:1.5,cloak:null,pose:k<0.4?poseMix('stand','throw',w):poseMix('throw','point',seg(k,0.4,0.48)),front:(h,b)=>{ if(k<0.4) discus(b[0],b[1]-6,9); }});
+     if(k>=0.4) discus(lerp(150,370,t), 120+arc(t,60)+t*100, 10);
+     figure({name:'Эвриал',x:330,y:256,s:1.1,f:-1,pose:k<0.6?swing(s,0.6,'point','stand'):poseMix('point','mourn',seg(k,0.85,0.95)),hair:'ink',dress:'cream',trim:'sea'});
    }},
   {t:'Сеть Гефеста', c:'Демодок поёт, как Гефест поймал невидимой сетью Афродиту с Аресом на ложе — и все боги сбежались хохотать над пленниками.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'wine',cols:[]});
      bed(260,250,1.25);
-     figure({x:236,y:196,s:1.0,pose:'sit',helmet:'bronze',crest:'red',dress:'red',trim:'gold',hair:'ink'});
-     figure({x:292,y:196,s:0.95,female:true,pose:'sit',dress:'rose',trim:'gold',hair:'ochre'});
-     net(170,92,190,108);
-     god({x:90,y:250,s:1.45,beard:true,hair:'ink',dress:'umber',trim:'ochre',cap:'brown',pose:'raise',item:h=>{ line('brown',4,[h[0],h[1],h[0]+4,h[1]-24]); rect(h[0]-6,h[1]-34,20,12,'slate'); }});
+     figure({name:'Арес',x:236,y:196,s:1.0,pose:k>0.4?swing(s,1.5,'bothup','plead'):'sit',helmet:'bronze',crest:'red',dress:'red',trim:'gold',hair:'ink'});
+     figure({name:'Афродита',x:292,y:196,s:0.95,female:true,pose:k>0.4?'mourn':'sit',dress:'rose',trim:'gold',hair:'ochre'});
+     net(170,lerp(-20,92,seg(k,0.1,0.4)),190,108);
+     god({name:'Гефест',x:90,y:250,s:1.45,beard:true,hair:'ink',dress:'umber',trim:'ochre',cap:'brown',pose:swing(s,1,'raise','strike'),item:h=>{ line('brown',4,[h[0],h[1],h[0]+4,h[1]-24]); rect(h[0]-6,h[1]-34,20,12,'slate'); }});
+     if(k>0.6){ for(let i=0;i<3;i++) god({x:352+i*14,y:120+i*30,s:0.45,f:-1,pose:swing(s,1.4,'bothup','raise',i/3),dress:'marble',hair:i%2?'ochre':'ink'}); label('боги смеются', 360, 50); }
    }},
   {t:'Деревянный конь', c:'По просьбе Одиссея певец поёт о деревянном коне, в чреве которого ахейцы проникли в Трою. Герой снова не может сдержать слёз.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); wall(0,110,400,120); for(let x=0;x<SW;x+=48) rect(x,98,30,14,'stone');
      rect(170,150,60,80,'brown');
+     label('Троя', 200, 92);
      ground(230,'sand','umber');
-     woodHorse(200,256,1.25);
+     const x = lerp(-60,200,seg(k,0,0.8));
+     woodHorse(x,256+Math.abs(osc(s,1))*1.5,1.25);
+     label('деревянный конь', x, 134);
+     for(let i=0;i<2;i++) MATE({x:x-110-i*26,y:262,s:0.8,pose:'push'});
    }},
   {t:'Кто ты, странник?', c:'Алкиной замечает слёзы гостя и просит наконец открыть, кто он, откуда родом и о ком так скорбит.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
      fire(200,236,1.1);
      throne(300,240,1.3,'gold',true);
-     KING({x:300,y:240,s:1.4,f:-1,pose:'sit',cloak:'lapis',item:HOLD.staff});
-     ODY({x:110,y:240,s:1.5,pose:'stand',dress:'purple',cloak:'purple'});
+     KING({name:'Алкиной',x:300,y:240,s:1.4,f:-1,pose:poseMix('sit','sitgreet',seg(k,0.2,0.4)),cloak:'lapis',item:HOLD.staff});
+     ODY({name:'странник',x:110,y:240,s:1.5,pose:poseMix('mourn','stand',seg(k,0.55,0.75)),dress:'purple',cloak:'purple'});
    }}
 ]});
 
@@ -3074,688 +3210,838 @@ function caveInside(){ // пещера изнутри: тёмные своды �
 
 /* IX */ SONGS.push({log:'«Я Одиссей, сын Лаэрта» — начинается рассказ о скитаниях.', scenes:[
   {t:'Лотофаги', c:'Одиссей открывает феакам своё имя и начинает рассказ. В земле лотофагов спутники отведали сладкого лотоса и забыли о доме — их пришлось тащить на корабли силой.',
-   d:()=>{
-     bg('sky'); seaBand(160); ship(70,196,0.62);
+   d:(k,s)=>{
+     bg('sky'); seaBand(160); ship(70,196+osc(s,0.5)*1.5,0.62);
      shape('olive','M0,300 L0,220 Q200,194 400,214 L400,300 Z');
-     [[250,250],[300,270],[350,246],[200,280],[370,286]].forEach(([x,y],i)=> lotus(x,y,1+i%2*0.2));
-     lying(figure, 360, 228, 0.8, {dress:'cream',trim:'red',hair:'umber'});
-     ODY({x:150,y:262,s:1.4,pose:'walk'});
-     figure({x:230,y:262,s:1.3,f:-1,pose:'plead',lean:-0.3,dress:'cream',trim:'red',hair:'umber'});
+     [[250,250],[300,270],[350,246],[200,280],[370,286]].forEach(([x,y],i)=> at(x,y,1,()=> lotus(0,0,1+i%2*0.2),false,osc(s,0.4,i/5)*0.08));
+     lying(MATE, 360, 228, 0.8, {name:'спутник'});
+     const d = seg(k,0.15,0.95)*90;
+     ODY({x:190-d,y:262,s:1.4,f:-1,pose:walking(s,0.9)});
+     MATE({name:'спутник',x:250-d,y:262,s:1.3,f:-1,pose:'plead',lean:-0.35+osc(s,0.9)*0.05});
    }},
   {t:'Пещера великана', c:'В пещере циклопа Полифема. Великан загоняет стадо, заваливает вход скалой, которую не сдвинуть и двадцати двум повозкам, и хватает спутников на ужин.',
-   d:()=>{
+   d:(k,s)=>{
      caveInside();
-     boulder(352,196,52);
+     boulder(lerp(430,352,seg(k,0.55,0.85)),196,52);
      for(let i=0;i<4;i++) circle(40+i*26,92,11,'cream');
      rect(26,100,110,6,'umber');
-     beast(80,272,0.9,'sheep'); beast(130,284,0.85,'sheep',{f:-1}); beast(300,286,0.9,'ram');
-     CYC({x:210,y:268,s:2.2,pose:'walk',item:h=> line('brown',8,[h[0],Math.min(-1,h[1]+60),h[0]+6,h[1]-40])});
-     figure({x:50,y:250,s:0.62,pose:'mourn',dress:'cream',trim:'red'});
+     const q = seg(k,0,0.5);
+     beast(lerp(380,80,q),272,0.9,'sheep',{f:-1,gait:k<0.5?s*8:0}); beast(lerp(420,130,q),284,0.85,'sheep',{f:-1,gait:k<0.5?s*8+1:0}); beast(lerp(460,300,q),286,0.9,'ram',{f:-1,gait:k<0.5?s*8+2:0});
+     CYC({x:lerp(330,210,seg(k,0,0.45)),y:268,s:2.2,f:-1,pose:k<0.45?walking(s,0.7):poseMix('walk','point',seg(k,0.85,0.95)),item:h=> line('brown',8,[h[0],Math.min(-1,h[1]+60),h[0]+6,h[1]-40])});
+     MATE({name:'спутники',x:50,y:250,s:0.62,pose:'mourn'}); MATE({x:76,y:252,s:0.6,pose:'mourn',hair:'ink'});
    }},
   {t:'Вино для «Никого»', c:'Одиссей угощает циклопа крепким неразбавленным вином и называет себя «Никто». Опьяневший великан валится и засыпает.',
-   d:()=>{
+   d:(k,s)=>{
      caveInside();
      fire(190,240,1.1);
-     CYC({x:300,y:270,s:1.9,f:-1,pose:'sit',item:h=> cup(h[0]-2,h[1]-6,1.4,'umber')});
-     ODY({x:110,y:262,s:1.35,pose:'greet',item:h=> cup(h[0]+6,h[1]-6,1.0,'bronze')});
+     const drunk = seg(k,0.55,0.9);
+     CYC({x:300,y:270,s:1.9,f:-1,pose:k<0.3?'sitgreet':poseMix('sitdrink','sit',seg(k,0.45,0.55)),lean:-drunk*0.9,item:k>0.25&&k<0.5?h=> cup(h[0]-2,h[1]-6,1.4,'umber'):null});
+     ODY({name:'Одиссей — «Никто»',x:110,y:262,s:1.35,pose:poseMix('greet','stand',seg(k,0.25,0.4)),item:k<0.25?h=> cup(h[0]+6,h[1]-6,1.0,'bronze'):null});
      krater(60,262,0.9);
+     if(k>0.25 && k<0.3){ const q=seg(k,0.2,0.3); cup(lerp(150,256,q),150,1.2,'umber'); }
    }},
   {t:'Ослепление', c:'Раскалённым колом из маслины Одиссей с товарищами выжигает циклопу единственный глаз. «Никто меня губит!» — ревёт Полифем соседям.',
-   d:()=>{
+   d:(k,s)=>{
      bg('brown');
-     eyeBig(250,128,2.0,{blind:true});
-     line('umber',14,[20,276,226,140]);
-     flame(232,140,1.6);
-     figure({x:80,y:290,s:1.0,pose:'push',dress:'cream',trim:'red',hair:'umber'});
-     ODY({x:150,y:262,s:1.05,pose:'push',cloak:null});
+     const hit = seg(k,0.15,0.5);
+     eyeBig(250,128+(k>0.5?osc(s,4)*3:0),2.0,{blind:k>0.45});
+     const ex = lerp(150,226,hit), ey = lerp(186,140,hit);
+     line('umber',14,[ex-206,ey+136,ex,ey]);
+     flame(ex+6,ey,1.2+hit*0.8);
+     MATE({x:80-60*(1-hit),y:290,s:1.0,pose:'push'});
+     ODY({x:150-60*(1-hit),y:262,s:1.05,pose:'push',cloak:null});
+     label('глаз Полифема', 250, 60);
    }},
   {t:'Под брюхом барана', c:'Наутро слепой великан выпускает стадо, ощупывая спины овец. Греки уходят, привязавшись снизу к баранам, а сам Одиссей — под брюхом вожака.',
-   d:()=>{
+   d:(k,s)=>{
      caveInside();
-     beast(190,262,2.7,'ram');
-     ODY({x:232,y:252,s:0.74,rot:-Math.PI/2,pose:'bothup',cloak:null});
-     CYC({x:356,y:270,s:1.9,f:-1,pose:'sit',blind:true});
+     const x = lerp(90,300,seg(k,0,0.95));
+     beast(x,262,2.7,'ram',{gait:s*5,name:'вожак стада'});
+     ODY({x:x+42,y:252,s:0.74,rot:-Math.PI/2,pose:'bothup',cloak:null,name:'Одиссей'});
+     CYC({x:356,y:270,s:1.9,f:-1,pose:swing(s,0.6,'sitgreet','sit'),blind:true});
    }},
   {t:'Проклятие Полифема', c:'С уходящего корабля Одиссей выкрикивает своё настоящее имя. Полифем швыряет вслед скалу и молит отца, Посейдона, о мести.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(176);
      rock(70,300,190,210,'stone');
-     CYC({x:84,y:122,s:1.15,pose:'throw',blind:true,front:(h,b)=> boulder(b[0],b[1]-8,14)});
-     curve('ash',3,'M110,40 Q190,10 236,64');
-     boulder(246,76,20);
-     ship(310,224,1.0,{sail:false});
-     for(let i=0;i<5;i++) circle(250+i*8,200-((i*7)%10),5,'foam');
+     const t = seg(k,0.25,0.7);
+     CYC({x:84,y:122,s:1.15,pose:poseMix('stand','throw',seg(k,0,0.22)),blind:true,front:(h,b)=>{ if(k<0.25) boulder(b[0],b[1]-8,14); }});
+     if(k>=0.25 && k<0.72) boulder(lerp(70,290,t), 40+arc(t,40)+t*150, 20);
+     const sx = lerp(290,350,seg(k,0,1));
+     ship(sx,224+(k>0.7?osc(s,1.2)*4:0),1.0,{sail:false});
+     label('корабль Одиссея', sx, 150);
+     if(k>0.7) for(let i=0;i<6;i++) circle(280+i*8,206-((i*7)%10)-seg(k,0.7,0.8)*14,5,'foam');
    }}
 ]});
 
 /* X */ SONGS.push({log:'Ветры, людоеды и чародейка: от флота остаётся один корабль.', scenes:[
   {t:'Мех с ветрами', c:'Повелитель ветров Эол дарит Одиссею бычий мех, в котором завязаны все буйные ветры, оставив на воле лишь попутный.',
-   d:()=>{
-     bg('sky'); cloud(70,60,1.0,'marble'); cloud(320,50,0.8,'marble'); ground(236,'bronze','gold');
-     windbag(200,190,1.5);
-     KING({x:80,y:244,s:1.45,pose:'greet',cloak:'azure',hair:'ash'});
-     ODY({x:320,y:244,s:1.45,f:-1,pose:'greet'});
+   d:(k,s)=>{
+     bg('sky'); cloud(70+s*4,60,1.0,'marble'); cloud(320-s*3,50,0.8,'marble'); ground(236,'bronze','gold');
+     const q = seg(k,0.25,0.7);
+     windbag(lerp(150,250,q),190+arc(q,20),1.4);
+     KING({name:'Эол',x:80,y:244,s:1.45,pose:poseMix('greet','stand',seg(k,0.7,0.85)),cloak:'azure',hair:'ash'});
+     ODY({x:320,y:244,s:1.45,f:-1,pose:poseMix('stand','greet',seg(k,0.5,0.7))});
    }},
   {t:'Итака в виду', c:'Уже видны костры Итаки, но Одиссей засыпает. Спутники, решив, что в мехе золото, развязывают его — и буря уносит корабли назад.',
-   d:()=>{
-     bg('sky'); island(340,156,160,40,'olive'); flame(310,128,0.5); flame(350,124,0.5);
+   d:(k,s)=>{
+     const back = seg(k,0.45,1);
+     bg('sky'); island(340+back*80,156,160,40,'olive'); flame(310+back*80,128,0.5); flame(350+back*80,124,0.5);
+     label('Итака', 340+back*80, 104);
      seaBand(154);
-     ship(170,216,1.15,{storm:true});
-     windbag(140,186,0.62);
-     for(let i=0;i<5;i++) curve('ghost',5,`M${150+i*6},${172-i*14} q${40+i*10},${-10-i*4} ${70+i*14},${10}`);
-     cloud(80,40,1.1,'stone');
+     const sx = lerp(190,120,back);
+     ship(sx,216+osc(s,k>0.45?1.2:0.4)*3,1.15,{storm:k>0.45});
+     windbag(sx-30,186,0.62);
+     const w = seg(k,0.4,0.7);
+     if(w>0) for(let i=0;i<5;i++) curve('ghost',5,`M${sx-20+i*6},${172-i*14} q${(40+i*10)*w},${(-10-i*4)*w} ${(70+i*14)*w},${10*w}`);
+     MATE({name:'спутники',x:sx+20,y:192,s:0.5,pose:k<0.4?'crouch':'bothup'});
+     cloud(80-s*5,40,1.1,'stone');
    }},
   {t:'Лестригоны', c:'Великаны-лестригоны забрасывают гавань скалами и бьют людей, как рыбу. Из всего флота спасается лишь корабль Одиссея.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(200);
-     figure({x:60,y:160,s:1.45,pose:'throw',skin:'umber',dress:'brown',trim:'ink',beard:true,hair:'ink',front:(h,b)=> boulder(b[0],b[1]-8,12)});
-     figure({x:350,y:150,s:1.35,f:-1,pose:'throw',skin:'umber',dress:'slate',trim:'ink',beard:true,hair:'ink',front:(h,b)=> boulder(b[0],b[1]-8,12)});
+     figure({name:'лестригоны',x:60,y:160,s:1.45,pose:swing(s,0.7,'throw','point'),skin:'umber',dress:'brown',trim:'ink',beard:true,hair:'ink'});
+     figure({x:350,y:150,s:1.35,f:-1,pose:swing(s,0.7,'point','throw'),skin:'umber',dress:'slate',trim:'ink',beard:true,hair:'ink'});
      rock(50,300,150,150,'stone'); rock(360,300,140,160,'slate');
-     ship(170,250,0.62); ship(250,258,0.58,{f:-1,mast:false});
-     boulder(200,150,13); boulder(150,190,10);
+     const sink = seg(k,0.5,1);
+     ship(170,250+sink*30,0.62,{mast:k<0.6}); ship(250,258+sink*34,0.58,{f:-1,mast:false});
+     for(let i=0;i<3;i++){ const q=((s*0.55+i/3)%1); boulder(lerp(i%2?330:80, 160+i*40, q), 110+q*140, 12); }
+     ship(lerp(200,420,seg(k,0.3,1)),222,0.5);
    }},
   {t:'Чары Кирки', c:'На острове Ээя волшебница Кирка угощает спутников зельем и ударом жезла превращает их в свиней — но разум у них остаётся человеческий.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'purple',frieze:'gold',cols:[30]});
-     figure({x:120,y:240,s:1.55,female:true,dress:'red',trim:'gold',fold:'wine',hair:'ochre',cap:'gold',pose:'raise',item:HOLD.wand});
-     beast(230,244,1.3,'pig'); beast(310,236,1.2,'pig',{f:-1}); beast(352,258,1.1,'pig');
+     figure({name:'Кирка',x:120,y:240,s:1.55,female:true,dress:'red',trim:'gold',fold:'wine',hair:'ochre',cap:'gold',pose:poseMix('greet','raise',seg(k,0.25,0.4)),item:HOLD.wand});
+     const spots = [[230,244,1.3,1],[310,236,1.2,-1],[352,258,1.1,1]];
+     if(k<0.45) spots.forEach(([x,y,sc,f],i)=> MATE({name:i===0?'спутники':null,x,y,s:sc*0.95,f:-f,pose:'stand',hair:i%2?'ink':'umber'}));
+     else spots.forEach(([x,y,sc,f],i)=> beast(x+osc(s,0.4,i/3)*4,y,sc,'pig',{f,name:i===0?'спутники':null}));
+     if(k>0.35 && k<0.6) sparkles(200,150,180,100,Math.floor(s*6),18);
      cup(212,150,1.0);
    }},
   {t:'Трава моли', c:'Гермес даёт Одиссею траву моли — с чёрным корнем и белым, как молоко, цветком. Чары Кирки над ним не властны, и она возвращает спутникам облик людей.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(232,'olive','leaf');
      tree(40,240,1.1); tree(360,240,1.15,{seed:7});
-     flowerMoly(200,226,2.0);
-     ODY({x:110,y:252,s:1.45,pose:'greet',item:h=> sword(h[0]-30,h[1]+40,h[0]-46,h[1]+64)});
-     HERMES({x:296,y:252,s:1.45,f:-1,pose:'greet'});
+     const q = seg(k,0.3,0.7);
+     ODY({x:110,y:252,s:1.45,pose:poseMix('stand','greet',seg(k,0.55,0.7)),item:h=> sword(h[0]-30,h[1]+40,h[0]-46,h[1]+64)});
+     HERMES({x:296,y:252,s:1.45,f:-1,pose:'greet',item:null});
+     flowerMoly(lerp(258,152,q),lerp(172,176,q)+arc(q,30),1.3);
+     label('трава моли', lerp(258,152,q), 100);
    }},
   {t:'Падение Ельпенора', c:'Через год Кирка открывает: путь домой лежит через царство мёртвых. В утро отплытия юный Ельпенор спросонья падает с крыши и разбивается насмерть.',
-   d:()=>{
+   d:(k,s)=>{
      bg('rose'); ground(250,'sand','umber');
      rect(170,130,210,120,'cream'); poly('terra',[160,132, 275,90, 390,132]); rect(250,180,40,70,'brown');
-     figure({x:150,y:150,s:1.1,rot:-2.4,pose:'fall',dress:'cream',trim:'red',hair:'umber'});
-     cup(110,214,0.8);
+     const f = seg(k,0.35,0.75);
+     if(k<0.35) lying(MATE, 300, 104, 0.8, {name:'Ельпенор'});
+     else figure({name:'Ельпенор',x:lerp(240,110,f),y:lerp(110,244,f),s:1.0,rot:lerp(-1.6,-3*Math.PI/2,f),pose:poseMix('fall','stand',seg(k,0.7,0.8)),dress:'cream',trim:'red',hair:'umber'});
+     if(k>0.35) cup(lerp(230,110,f),lerp(110,246,f),0.8);
    }}
 ]});
 
 /* XI */ SONGS.push({log:'На краю света Одиссей говорит с тенями умерших.', scenes:[
   {t:'Кровь для теней', c:'У края Океана Одиссей роет яму и приносит в жертву чёрных овец. На запах крови из Эреба слетаются тысячи теней.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate'); ground(214,'brown');
-     ghosts(9, 3, [30,110,230,190]);
+     ghosts(9, 3, [10,90,230,190], s, [180,230,seg(k,0.1,0.9)*0.7]);
+     label('тени умерших', 110, 70);
      pit(180,248,62);
      beast(80,266,0.95,'ram',{n:'ink'});
-     ODY({x:300,y:272,s:1.45,f:-1,pose:'hold',cloak:'wine',item:HOLD.sword});
+     ODY({x:300,y:272,s:1.45,f:-1,pose:poseMix('stand','hold',seg(k,0.4,0.55)),cloak:'wine',item:HOLD.sword});
    }},
   {t:'Тень матери', c:'Среди теней — мать Одиссея Антиклея, умершая от тоски по сыну. Трижды он пытается обнять её, и трижды она ускользает из рук, как сон.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); ground(234,'brown');
-     ghosts(5, 8, [250,120,380,170]);
-     SHADE({x:262,y:250,s:1.55,f:-1,female:true,old:true,pose:'greet',hair:'ash'});
-     ODY({x:132,y:250,s:1.5,pose:'hug',cloak:'wine'});
+     ghosts(5, 8, [250,120,380,170], s);
+     const tries = Math.abs(Math.sin(k*Math.PI*3));   // три попытки обнять
+     SHADE({name:'Антиклея',x:262+tries*30,y:250+osc(s,0.4)*3,s:1.55,f:-1,female:true,old:true,pose:'greet',hair:'ash'});
+     ODY({x:132+tries*60,y:250,s:1.5,pose:poseMix('stand','hug',tries)});
    }},
   {t:'Пророчество Тиресия', c:'Слепой прорицатель Тиресий пьёт жертвенную кровь и предрекает: не трогайте быков Гелиоса — иначе вернёшься поздно, один, на чужом корабле.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate'); ground(230,'brown');
      pit(200,262,50);
-     SHADE({x:270,y:250,s:1.6,f:-1,old:true,beard:true,pose:'hold',eye:'none',item:HOLD.scepter});
+     const bend = seg(k,0.1,0.3) - seg(k,0.45,0.6);
+     SHADE({name:'Тиресий',x:270,y:250,s:1.6,f:-1,old:true,beard:true,pose:poseMix('hold','point',seg(k,0.6,0.75)),lean:bend*0.7,eye:'none',item:HOLD.scepter});
      ODY({x:110,y:250,s:1.45,pose:'stand',cloak:'wine'});
+     if(k>0.65){ beast(lerp(60,90,seg(k,0.65,1)),140,0.7,'cow',{n:'marble'}); sun(150,96,14); label('быки Гелиоса', 110, 70); }
    }},
   {t:'Ахилл и Аякс', c:'Тень Ахилла признаётся: лучше быть батраком у бедняка на земле, чем царём над мёртвыми. Аякс молча отворачивается — он не простил спора о доспехах.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate'); ground(234,'brown');
-     SHADE({x:170,y:252,s:1.55,pose:'hold',helmet:'ghost',crest:'ash',item:HOLD.spear});
+     SHADE({name:'Ахилл',x:170,y:252+osc(s,0.4)*3,s:1.55,pose:swing(s,0.4,'hold','point'),helmet:'ghost',crest:'ash',item:HOLD.spear});
      ODY({x:70,y:252,s:1.35,pose:'greet',cloak:'wine'});
-     SHADE({x:330,y:252,s:1.45,pose:'mourn',helmet:'ghost',crest:'stone',item:HOLD.shield});
+     const away = k>0.5;
+     SHADE({name:'Аякс',x:lerp(330,420,seg(k,0.55,1)),y:252,s:1.45,f:away?1:-1,pose:away?walking(s,0.7):'stand',helmet:'ghost',crest:'stone',item:HOLD.shield});
    }},
   {t:'Камень Сизифа', c:'Одиссей видит вечные муки грешников: Сизиф снова и снова вкатывает на гору камень, который у самой вершины срывается вниз.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate');
      poly('brown',[0,300, 0,270, 400,80, 400,300]);
-     boulder(270,128,30);
-     figure({x:206,y:176,s:1.25,pose:'push',dress:'stone',trim:'slate',hair:'ink',beard:true});
+     // вверх по склону — и камень срывается
+     const up = seg(k,0,0.75), down = seg(k,0.8,1);
+     const bx = lerp(120,300,up) - lerp(0,240,down);
+     const by = 270 - (bx/400)*190 - 30;
+     boulder(bx,by,30);
+     const fx = lerp(56,236,up);
+     figure({name:'Сизиф',x:fx,y:270-(fx/400)*190+4,s:1.25,pose:k<0.78?poseMix('push','dig',0.5+0.5*osc(s,0.8)):'bothup',dress:'stone',trim:'slate',hair:'ink',beard:true});
    }}
 ]});
 
 /* XII */ SONGS.push({log:'Чудовища пролива и роковые быки Гелиоса.', scenes:[
   {t:'Весло на кургане', c:'Вернувшись на остров Кирки, спутники хоронят Ельпенора и, как он просил, ставят на кургане его весло.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(186); ground(228,'sand');
-     mound(200,246,190,64,'umber');
-     oar(200,182,204,40);
-     figure({x:70,y:262,s:1.2,pose:'mourn',dress:'cream',trim:'red',hair:'umber'});
-     ODY({x:330,y:262,s:1.3,f:-1,pose:'mourn'});
+     mound(200,246,190,64*seg(k,0,0.4)+10,'umber');
+     if(k>0.35) oar(200,lerp(130,182,seg(k,0.35,0.6)),204,lerp(-12,40,seg(k,0.35,0.6)));
+     label('курган Ельпенора', 200, 26);
+     MATE({x:70,y:262,s:1.2,pose:poseMix('crouch','mourn',seg(k,0.5,0.7))});
+     ODY({x:330,y:262,s:1.3,f:-1,pose:poseMix('stand','mourn',seg(k,0.6,0.8))});
    }},
   {t:'Сирены', c:'Спутники залепили уши воском и привязали Одиссея к мачте. Сирены поют о Трое и о том, что знают всё на свете; он рвётся к ним — но корабль проходит мимо.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(176);
      rock(70,216,140,70,'stone'); line('ash',3,[30,200,46,206]); line('ash',3,[90,196,104,200]);
-     siren(50,160,1.15,1); siren(110,166,1.05,1);
-     ship(270,230,1.25,{sail:false});
-     ODY({x:270,y:206,s:0.95,pose:'bound',cloak:null});
-     line('umber',3,[258,140,282,136]); line('umber',3,[258,160,282,156]);
+     siren(50,160+osc(s,0.6)*3,1.15,1); siren(110,166+osc(s,0.6,0.5)*3,1.05,1);
+     label('Сирены', 80, 92);
+     for(let i=0;i<3;i++){ const q=((s*0.4+i/3)%1); circle(130+q*90, 120-q*20+osc(s,1,i/3)*6, 3, 'gold2'); }
+     const x = lerp(200,350,seg(k,0,1));
+     ship(x,230+osc(s,0.5)*2,1.25,{sail:false});
+     ODY({x,y:206,s:0.95,pose:'bound',cloak:null,lean:-0.15+osc(s,0.9)*0.12});
+     line('umber',3,[x-12,140,x+12,136]); line('umber',3,[x-12,160,x+12,156]);
    }},
   {t:'Сцилла и Харибда', c:'Узкий пролив: с одной стороны Харибда трижды в день поглощает море, с другой — шестиглавая Сцилла выхватывает с палубы шестерых гребцов.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(170);
-     scylla(92,300,0.92);
-     whirl(310,246,72);
-     ship(206,232,0.7,{sail:false});
+     at(92,300,0.92,()=> scylla(0,0,1),false,osc(s,0.35)*0.04);
+     label('Сцилла', 80, 70);
+     whirl(310,246,72,s*1.3);
+     label('Харибда', 310, 196);
+     const x = lerp(150,260,seg(k,0,1));
+     ship(x,232+osc(s,0.7)*3,0.7,{sail:false});
+     if(k>0.45 && k<0.75){ const g = seg(k,0.45,0.6) - seg(k,0.62,0.75); curve('leaf',9,`M70,190 Q${x-60},${120} ${x-10},${lerp(140,212,g)}`); ellipse(x-10,lerp(140,212,g),12,8,'leaf'); }
    }},
   {t:'Быки Гелиоса', c:'На острове Тринакрия ветры месяц держат корабль в гавани. Пока Одиссей спит, голодные спутники во главе с Эврилохом режут священных быков Солнца.',
-   d:()=>{
-     bg('sky'); sun(320,64,30); ground(196,'olive','leaf');
-     beast(90,246,1.3,'cow',{n:'marble'}); beast(220,262,1.4,'bull'); beast(336,250,1.2,'cow',{f:-1});
-     figure({x:160,y:280,s:1.0,pose:'point',dress:'cream',trim:'red',hair:'ink',beard:true});
+   d:(k,s)=>{
+     bg('sky'); sun(320,64,30+osc(s,0.4)*2); ground(196,'olive','leaf');
+     label('быки Гелиоса', 240, 160);
+     beast(90+osc(s,0.2)*3,246,1.3,'cow',{n:'marble'}); beast(220,262,1.4,'bull'); beast(336,250,1.2,'cow',{f:-1});
+     MATE({name:'Эврилох',x:lerp(20,160,seg(k,0,0.6)),y:280,s:1.0,pose:arrive(k,s,0.6,'point'),hair:'ink',beard:true,item:k>0.6?HOLD.sword:null});
+     MATE({x:lerp(-20,120,seg(k,0.1,0.65)),y:288,s:0.9,pose:arrive(k,s,0.65,'stand')});
    }},
   {t:'Молния Зевса', c:'Гелиос требует кары, и Зевс разбивает корабль молнией. Все спутники гибнут; лишь Одиссей на обломках мачты через девять дней добирается до острова Калипсо.',
-   d:()=>{
-     bg('slate'); cloud(90,40,1.3,'stone'); cloud(300,50,1.2,'ash');
-     bolt(210,96,2.2,0.15);
-     wavesBig(170);
-     at(150,236,1.0,()=> ship(0,0,1,{sail:false}), false, 0.5);
-     line('umber',8,[250,246,340,226]);
-     ODY({x:300,y:236,s:0.8,rot:-1.2,pose:'hug',cloak:null});
+   d:(k,s)=>{
+     bg('slate'); if(k>0.25 && k<0.4) rect(0,0,SW,170,'ash');
+     cloud(90,40,1.3,'stone'); cloud(300,50,1.2,'ash');
+     if(k>0.25 && k<0.5) bolt(210,96,2.2,0.15);
+     wavesBig(170, s*1.4);
+     const sink = seg(k,0.35,0.9);
+     at(150,236+sink*50,1.0,()=> ship(0,0,1,{sail:false}), false, 0.5*seg(k,0.3,0.45)+sink*0.4);
+     if(k<0.35) ODY({x:170,y:212,s:0.55,pose:'raise',cloak:null});
+     else {
+       line('umber',8,[250+sink*40,246+osc(s,0.7)*5,340+sink*40,226+osc(s,0.7)*5]);
+       ODY({x:300+sink*40,y:236+osc(s,0.7)*5,s:0.8,rot:-1.2,pose:'hug',cloak:null});
+     }
    }}
 ]});
 
 /* XIII */ SONGS.push({log:'Феаки доставляют спящего Одиссея домой.', scenes:[
   {t:'Сонное плавание', c:'Корабль феаков летит быстрее сокола. Одиссей спит глубоким, похожим на смерть сном и не знает, что двадцать лет скитаний позади.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(28,13,160); moon(60,50,15);
      seaBand(180,{dark:true});
-     ship(200,216,1.35,{sailN:'cream'});
-     lying(ODY, 252, 182, 0.62, {cover:'purple'});
-     bird(330,90,0.8,{n:'umber',n2:'brown'});
+     const x = lerp(120,280,seg(k,0,1)), y = 216+osc(s,0.6)*2;
+     ship(x,y,1.35,{sailN:'cream'});
+     lying(ODY, x+52, y-34, 0.62, {cover:'purple'});
+     bird(lerp(260,420,seg(k,0,1)),90+osc(s,0.5)*8,0.8,{name:'сокол',n:'umber',n2:'brown',flap:osc(s,1.8)});
    }},
   {t:'На родном берегу', c:'Феаки бережно кладут спящего на песок Итаки у оливы и пещеры нимф, а рядом — все дары: треножники, котлы, золото и одежды.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(150); ground(212,'sand');
+     label('Итака', 330, 40);
      cave(330,212,80,64,'brown'); tree(286,216,1.35);
      lying(ODY, 250, 260, 1.05, {cover:'purple'});
-     tripod(70,250,1.1); tripod(110,262,0.95); krater(60,282,0.7,'gold'); cloth(130,262,40,16,'red');
+     const g = seg(k,0,0.5);
+     if(k>0.05) tripod(70,250,1.1); if(k>0.2) tripod(110,262,0.95); if(k>0.35) krater(60,282,0.7,'gold'); if(k>0.45) cloth(130,262,40,16,'red');
+     for(let i=0;i<2;i++) figure({name:i?null:'феаки',x:lerp(150,-40,seg(k,0.55,1))+i*30,y:240,s:1.0,f:-1,pose:k>0.55?walking(s,1.2):poseMix('crouch','stand',g),dress:'azure',trim:'gold',hair:i?'ink':'umber'});
    }},
   {t:'Окаменевший корабль', c:'Посейдон в гневе на феаков. Когда их корабль возвращается домой, он одним ударом руки превращает его в скалу у самой гавани.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(180);
-     ship(170,226,1.45,{stone:true});
-     POS({x:330,y:256,s:1.5,f:-1,pose:'raise'});
+     const stone = k>0.55;
+     const x = lerp(60,170,seg(k,0,0.5));
+     ship(x,226+(stone?0:osc(s,0.6)*2),1.45,{stone});
+     label('корабль феаков', x, 100);
+     if(k>0.5 && k<0.65) sparkles(x-80,120,170,100,Math.floor(s*6),20);
+     POS({x:330,y:256,s:1.5,f:-1,pose:poseMix('stand','raise',seg(k,0.4,0.55))});
      seaBand(214,{seed:5});
    }},
   {t:'Афина открывается', c:'Проснувшись, Одиссей не узнаёт родину — её окутал туман. Афина является ему юным пастухом, а потом в своём облике, и вместе они прячут дары в пещере.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(222,'olive','leaf');
      cave(70,226,100,96,'brown'); tripod(70,222,0.7);
      tree(180,228,1.0);
-     ATH({x:300,y:252,s:1.6,f:-1,pose:'greet',item:null});
-     ODY({x:180,y:252,s:1.45,pose:'raise'});
+     if(k<0.45) figure({name:'пастушок',x:300,y:252,s:1.3,f:-1,pose:swing(s,0.4,'greet','hold'),dress:'ochre',trim:'umber',hair:'ochre',cap:'umber',item:HOLD.crook});
+     else ATH({x:300,y:252,s:1.6,f:-1,pose:'greet',item:null});
+     if(k>0.38 && k<0.6) sparkles(250,60,100,190,Math.floor(s*6),24);
+     ODY({x:180,y:252,s:1.45,pose:k<0.45?'stand':poseMix('stand','raise',seg(k,0.45,0.6))});
+     const m = 1-seg(k,0,0.35);
+     if(m>0.05){ for(let i=0;i<10;i++) circle(20+i*40, 150+osc(s,0.2,i/10)*10, 26*m+4, 'ghost'); }
    }},
   {t:'Превращение в нищего', c:'Богиня делает его неузнаваемым: кожа сморщилась, волосы выпали, глаза потускнели. В рубище, с посохом и сумой он идёт к свинопасу.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(230,'olive','leaf');
-     ATH({x:120,y:252,s:1.6,pose:'point',item:HOLD.wand});
-     sparkles(220,60,110,190,15,22);
-     BEGGAR({x:280,y:254,s:1.5,f:-1,pose:'hold'});
-     ellipse(250,200,10,13,'umber');
+     ATH({x:120,y:252,s:1.6,pose:poseMix('stand','point',seg(k,0.1,0.3)),item:HOLD.wand});
+     if(k>0.3 && k<0.65) sparkles(220,60,110,190,Math.floor(s*7),24);
+     if(k<0.48) ODY({x:280,y:254,s:1.5,f:-1,pose:'stand'});
+     else { BEGGAR({x:lerp(280,330,seg(k,0.75,1)),y:254,s:1.5,f:-1,pose:k>0.75?walking(s,0.8):'hold'}); }
    }}
 ]});
 
 /* XIV */ SONGS.push({log:'Верный свинопас принимает нищего, не зная, кто он.', scenes:[
   {t:'Псы у ограды', c:'Свирепые псы с лаем бросаются на нищего. Одиссей садится на землю и роняет посох, но тут подбегает хозяин — свинопас Евмей — и отгоняет собак.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(220,'ochre','umber'); fenceStones(206);
      hut(330,222,0.9);
-     BEGGAR({x:90,y:262,s:1.3,pose:'ground',item:null});
-     line('umber',3.6,[110,268,170,282]);
-     beast(170,256,1.15,'dog',{f:-1}); beast(220,268,1.1,'dog',{f:-1});
-     EUM({x:300,y:262,s:1.4,f:-1,pose:'raise'});
+     const sat = seg(k,0.2,0.35);
+     BEGGAR({x:90,y:262,s:1.3,pose:poseMix('hold','ground',sat),item:k<0.3?HOLD.staff:null});
+     if(k>=0.3) line('umber',3.6,[110,268,170,282]);
+     const back = seg(k,0.6,0.9);
+     beast(lerp(260,170,seg(k,0,0.25))+back*120,256,1.15,'dog',{f:back>0?1:-1,gait:s*10});
+     beast(lerp(300,220,seg(k,0,0.25))+back*130,268,1.1,'dog',{f:back>0?1:-1,gait:s*10+1});
+     EUM({x:lerp(360,280,seg(k,0.35,0.6)),y:262,s:1.4,f:-1,pose:k<0.6?poseMix('run','run2',0.5+0.5*osc(s,1.6)):'raise'});
    }},
   {t:'Угощение свинопаса', c:'Евмей режет двух поросят, посыпает мясо ячменём и наливает вина. Он сетует, что лучших свиней съедают женихи пропавшего хозяина.',
-   d:()=>{
+   d:(k,s)=>{
      bg('brown'); ground(244,'umber');
      line('umber',4,[150,180,250,180]); line('umber',4,[150,180,150,240]); line('umber',4,[250,180,250,240]);
-     ellipse(185,186,18,9,'rose'); ellipse(222,186,16,8,'rose');
+     at(200,186,1,()=>{ ellipse(-15,0,18,9,'rose'); ellipse(22,0,16,8,'rose'); },false,osc(s,0.3)*0.1);
      fire(200,240,1.4);
-     EUM({x:90,y:262,s:1.45,pose:'hold',item:HOLD.cup});
+     const q = seg(k,0.5,0.8);
+     EUM({x:lerp(90,200,q),y:262,s:1.45,pose:k<0.5?swing(s,0.6,'hold','greet'):arrive(k,s,0.8,'greet'),item:HOLD.cup});
      stool(320,262,1.1);
-     BEGGAR({x:320,y:262,s:1.35,f:-1,pose:'sit',item:null});
+     BEGGAR({x:320,y:262,s:1.35,f:-1,pose:poseMix('sit','sitgreet',seg(k,0.75,0.9)),item:null});
    }},
   {t:'Рассказ «критянина»', c:'Странник выдаёт себя за критянина и клянётся: Одиссей вот-вот вернётся. Евмей не верит — слишком многие бродяги лгали ему ради ужина.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(16,17,110); ground(236,'brown');
      hut(330,236,1.0);
      fire(200,240,1.2);
-     BEGGAR({x:110,y:262,s:1.3,pose:'ground',item:null});
-     EUM({x:280,y:262,s:1.3,f:-1,pose:'ground'});
+     BEGGAR({name:'«критянин»',x:110,y:262,s:1.3,pose:swing(s,0.5,'ground',{drop:30,arms:[[-6,-56,-14,-48],[12,-72,24,-80]],legs:[[-14,-18,-6,-2],[16,-18,24,-2]],seat:true}),item:null});
+     EUM({x:280,y:262,s:1.3,f:-1,pose:'ground',lean:k>0.5?osc(s,0.7)*0.12:0});
+     for(let i=0;i<3;i++){ const q=((s*0.4+i/3)%1); circle(200+osc(s,0.6,i/3)*6, 210-q*80, 3, 'flame'); }
    }},
   {t:'Плащ в непогоду', c:'Ночь выдалась холодной и дождливой. Евмей укрывает гостя плащом, а сам с копьём уходит ночевать к свиньям — стеречь хозяйское добро.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate'); ground(236,'brown');
      hut(110,240,1.15);
      ellipse(330,266,22,10,'rose'); ellipse(366,272,20,9,'rose'); rect(300,226,90,8,'umber');
-     EUM({x:240,y:262,s:1.5,pose:'holdwalk',cloak:'brown',item:HOLD.spear});
-     rain(6);
+     EUM({x:lerp(150,270,seg(k,0.1,0.8)),y:262,s:1.5,pose:k<0.8?poseMix('holdwalk','holdwalk2',0.5+0.5*osc(s,0.6)):'hold',cloak:'brown',item:HOLD.spear});
+     rain(6, s);
    }}
 ]});
 
 /* XV */ SONGS.push({log:'Сын пускается в обратный путь, минуя засаду.', scenes:[
   {t:'Дары Спарты', c:'Афина торопит Телемаха домой. Менелай дарит ему серебряную чашу работы Гефеста, а Елена — пеплос, сотканный своими руками, для будущей невесты.',
-   d:()=>{
+   d:(k,s)=>{
      bg('lapis'); rect(0,0,SW,22,'gold'); ground(240,'cream','gold');
      column(40,240,218,{n:'gold2',flute:'gold',cap:'gold'}); column(360,240,218,{n:'gold2',flute:'gold',cap:'gold'});
      krater(200,240,1.1,'silver');
-     figure({x:130,y:240,s:1.5,female:true,dress:'azure',trim:'gold',fold:'lapis',hair:'ochre',cap:'gold',pose:'greet',front:h=> cloth(h[0]-4,h[1]-6,40,46,'purple')});
-     TEL({x:290,y:240,s:1.5,f:-1,pose:'greet'});
+     const q = seg(k,0.3,0.65);
+     HELEN({x:130,y:240,s:1.5,pose:poseMix('greet','stand',seg(k,0.65,0.8))});
+     cloth(lerp(146,224,q),lerp(150,150,q)+arc(q,10),40,46,'purple');
+     TEL({x:290,y:240,s:1.5,f:-1,pose:poseMix('stand','greet',seg(k,0.4,0.6))});
+     label('пеплос', lerp(166,244,q), 140);
    }},
   {t:'Орёл и гусь', c:'Над колесницей пролетает орёл с белым гусем в когтях. Елена толкует знамение: так и Одиссей вернётся и покарает женихов.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(232,'sand','umber');
-     bird(250,86,1.7,{n:'umber',n2:'brown',prey:()=> bird(2,26,0.55,{n:'marble',head:'marble',beak:'ochre',rot:0.7})});
-     chariot(110,270,1.0,{riders:()=> TEL({x:-20,y:-24,s:0.62,pose:'raise'})});
-     figure({x:330,y:262,s:1.45,f:-1,female:true,dress:'azure',trim:'gold',fold:'lapis',hair:'ochre',cap:'gold',pose:'raise'});
+     const q = seg(k,0,0.7);
+     bird(lerp(-40,300,q),86+osc(s,0.5)*8,1.7,{name:'орёл',n:'umber',n2:'brown',flap:osc(s,1.2),prey:()=> bird(2,26,0.55,{n:'marble',head:'marble',beak:'ochre',rot:0.7,flap:osc(s,2)})});
+     chariot(110,270,1.0,{riders:()=> TEL({x:-20,y:-24,s:0.62,pose:poseMix('stand','raise',seg(k,0.3,0.5))})});
+     HELEN({x:330,y:262,s:1.45,f:-1,pose:poseMix('stand','raise',seg(k,0.45,0.6))});
    }},
   {t:'Беглый прорицатель', c:'У Пилоса к Телемаху подходит прорицатель Феоклимен, бегущий от мести за убийство, и просит взять его на корабль.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(166); ground(208,'sand');
-     ship(130,214,1.0);
-     TEL({x:220,y:262,s:1.45,pose:'greet'});
-     figure({x:320,y:262,s:1.45,f:-1,pose:'plead',long:true,beard:true,dress:'cream',cloak:'olive',trim:'umber',hair:'ink',wreath:true});
+     ship(130,214+osc(s,0.4)*1.5,1.0);
+     TEL({x:220,y:262,s:1.45,pose:poseMix('stand','greet',seg(k,0.55,0.75))});
+     figure({name:'Феоклимен',x:lerp(420,320,seg(k,0,0.5)),y:262,s:1.45,f:-1,pose:arrive(k,s,0.5,'plead'),long:true,beard:true,dress:'cream',cloak:'olive',trim:'umber',hair:'ink',wreath:true});
    }},
   {t:'История Евмея', c:'Тем временем Евмей рассказывает свою историю: он сын царя, в детстве похищенный финикийцами и проданный на Итаку Лаэрту.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(170); ground(214,'sand');
-     ship(290,212,1.15,{sailN:'purple',f:-1});
-     figure({x:140,y:262,s:1.45,female:true,dress:'red',trim:'gold',hair:'ink',pose:'walk'});
-     figure({x:94,y:262,s:0.7,pose:'plead',dress:'marble',trim:'gold',hair:'umber'});
+     ship(290,212+osc(s,0.4)*1.5,1.15,{sailN:'purple',f:-1});
+     label('финикийцы', 290, 90);
+     const d = seg(k,0,0.85)*110;
+     figure({name:'кормилица',x:90+d,y:262,s:1.45,female:true,dress:'red',trim:'gold',hair:'ink',pose:walking(s,0.9)});
+     figure({name:'маленький Евмей',x:46+d,y:262,s:0.7,pose:poseMix('walk','walk2',0.5+0.5*osc(s,0.45)),dress:'marble',trim:'gold',hair:'umber'});
    }},
   {t:'В обход засады', c:'Телемах обходит засаду стороной, на рассвете высаживается на Итаке и пешком идёт к хижине свинопаса.',
-   d:()=>{
-     bg('rose'); sun(200,176,28);
+   d:(k,s)=>{
+     bg('rose'); sun(200,lerp(196,150,seg(k,0,1)),28);
      seaBand(170); island(330,170,150,24,'olive');
-     ship(110,214,0.85);
+     ship(lerp(40,110,seg(k,0,0.4)),214+osc(s,0.4)*1.5,0.85);
      ground(244,'sand');
-     TEL({x:270,y:276,s:1.2,pose:'holdwalk',item:HOLD.spear,cloak:'lapis'});
+     TEL({x:lerp(150,330,seg(k,0.35,1)),y:276,s:1.2,pose:k<0.35?'hold':poseMix('holdwalk','holdwalk2',0.5+0.5*osc(s,0.7)),item:HOLD.spear,cloak:'lapis'});
    }}
 ]});
 
 /* XVI */ SONGS.push({log:'Отец и сын наконец узнают друг друга.', scenes:[
   {t:'Псы не лают', c:'Псы не лают — радостно ластятся к пришедшему. Евмей роняет чашу и целует Телемаха, как отец единственного сына, вернувшегося издалека.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(222,'ochre','umber');
      hut(70,226,0.9);
-     TEL({x:250,y:256,s:1.5,f:-1,pose:'greet',cloak:'lapis'});
-     EUM({x:180,y:256,s:1.45,pose:'hug'});
-     beast(310,268,1.0,'dog',{f:-1}); beast(120,276,0.95,'dog');
-     at(150,286,0.8,()=> cup(0,0,1,'umber'), false, 1.4);
+     TEL({x:lerp(400,250,seg(k,0,0.4)),y:256,s:1.5,f:-1,pose:arrive(k,s,0.4,'greet'),cloak:'lapis'});
+     EUM({x:lerp(140,180,seg(k,0.4,0.6)),y:256,s:1.45,pose:k<0.4?'hold':'hug'});
+     beast(310,268-Math.abs(osc(s,1.6))*8,1.0,'dog',{f:-1}); beast(220,276-Math.abs(osc(s,1.6,0.3))*8,0.95,'dog');
+     if(k<0.45) cup(150,190,0.8,'umber'); else at(150,lerp(190,286,seg(k,0.45,0.6)),0.8,()=> cup(0,0,1,'umber'), false, 1.4*seg(k,0.45,0.6));
    }},
   {t:'Золотой жезл', c:'Пока Евмей в отлучке, Афина касается Одиссея золотым жезлом: к нему возвращаются сила, молодость и прекрасные одежды.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(230,'olive','leaf');
-     ATH({x:110,y:252,s:1.6,pose:'point',item:HOLD.wand});
-     sparkles(220,40,140,200,21,26);
-     ODY({x:290,y:254,s:1.6,f:-1,pose:'stand',dress:'marble',cloak:'purple'});
-     dogLying(330,276,0.8);
+     ATH({x:110,y:252,s:1.6,pose:poseMix('stand','point',seg(k,0.1,0.3)),item:HOLD.wand});
+     if(k>0.3 && k<0.7) sparkles(220,40,140,200,Math.floor(s*7),26);
+     if(k<0.5) BEGGAR({x:290,y:254,s:1.5,f:-1,pose:'hold'});
+     else ODY({x:290,y:254,s:1.6,f:-1,pose:poseMix('stand','bothup',seg(k,0.55,0.7)),dress:'marble',cloak:'purple'});
+     dogLying(340,276,0.8);
    }},
   {t:'«Я твой отец»', c:'Телемах принимает его за бога. «Я не бог, я твой отец», — говорит Одиссей, и они плачут, обнявшись, громче хищных птиц, лишившихся птенцов.',
-   d:()=>{
+   d:(k,s)=>{
      bg('cream'); ground(244,'umber','brown');
      rect(30,40,90,70,'sky'); rect(30,40,90,6,'umber');
-     bird(70,72,0.55,{n:'brown'}); bird(96,58,0.45,{n:'umber'});
-     ODY({x:172,y:262,s:1.6,pose:'hug',cloak:'purple'});
-     TEL({x:232,y:262,s:1.5,f:-1,pose:'hug',cloak:'lapis'});
+     bird(70+osc(s,0.3)*10,72,0.55,{n:'brown',flap:osc(s,1.6)}); bird(96-osc(s,0.3)*10,58,0.45,{n:'umber',flap:osc(s,1.6,0.4)});
+     const back = seg(k,0,0.2) - seg(k,0.35,0.6), close = seg(k,0.35,0.6);
+     ODY({x:lerp(140,172,close),y:262,s:1.6,pose:poseMix('greet','hug',close),cloak:'purple'});
+     TEL({x:lerp(262,232,close)+back*30,y:262,s:1.5,f:-1,pose:k<0.35?poseMix('stand','plead',back):poseMix('plead','hug',close),cloak:'lapis'});
    }},
   {t:'Замысел', c:'Отец и сын держат совет: Телемах уберёт оружие из зала и оставит лишь два меча, два копья и два щита — для них двоих.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[]});
      spear(90,130,170,40); spear(310,130,230,40);
-     shield(130,80,22,{}); shield(200,74,24,{emblem:'owl'}); shield(270,80,22,{});
+     const q = seg(k,0.4,0.8);
+     shield(130,80,22,{}); shield(lerp(200,272,q),lerp(74,190,q),24,{emblem:'owl'}); shield(270,80,22,{});
      sword(160,120,196,112); sword(240,120,204,112);
-     ODY({x:120,y:244,s:1.45,pose:'raise',cloak:'purple'});
-     TEL({x:290,y:244,s:1.4,f:-1,pose:'stand',cloak:'lapis'});
+     ODY({x:120,y:244,s:1.45,pose:swing(s,0.35,'raise','point'),cloak:'purple'});
+     TEL({x:290,y:244,s:1.4,f:-1,pose:poseMix('raise','hold',q),cloak:'lapis'});
    }},
   {t:'Неудавшаяся засада', c:'Корабль женихов возвращается ни с чем. Антиной предлагает убить Телемаха на суше, но Амфином советует сперва узнать волю богов.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); seaBand(150); ground(206,'sand');
-     ship(110,196,0.9,{sailN:'wine'});
-     SUITOR({x:230,y:262,s:1.45,pose:'point',item:HOLD.spear});
-     SUITOR({x:320,y:262,s:1.4,f:-1,pose:'greet',dress:'marble',trim:'olive',cloak:'olive',hair:'umber'});
+     ship(lerp(-60,110,seg(k,0,0.4)),196+osc(s,0.4)*1.5,0.9,{sailN:'wine'});
+     label('корабль женихов', lerp(-60,110,seg(k,0,0.4)), 96);
+     SUITOR({name:'Антиной',x:230,y:262,s:1.45,pose:swing(s,0.5,'point','strike'),item:HOLD.spear});
+     SUITOR({name:'Амфином',x:320,y:262,s:1.4,f:-1,pose:poseMix('stand','greet',seg(k,0.55,0.7)),dress:'marble',trim:'olive',cloak:'olive',hair:'umber'});
    }}
 ]});
 
 
-const MEL = o=> figure(mix({dress:'ochre', trim:'ink', hair:'ink', fold:'umber', beard:true}, o));  // Меланфий
-const LAER = o=> figure(mix({old:true, beard:true, dress:'umber', trim:'brown', fold:'brown', cap:'brown', hair:'ash'}, o)); // Лаэрт
+const MEL = o=> figure(mix({name:'Меланфий', dress:'ochre', trim:'ink', hair:'ink', fold:'umber', beard:true}, o));
+const LAER = o=> figure(mix({name:'Лаэрт', old:true, beard:true, dress:'umber', trim:'brown', fold:'brown', cap:'brown', hair:'ash'}, o));
 const hallNight = o=> hall(mix({wall:'wine', frieze:'brown'}, o));
+// брошенный предмет: летит по дуге из (x0,y0) в (x1,y1), q — доля пути
+const flyAt = (q, x0, y0, x1, y1, h)=> [lerp(x0,x1,q), lerp(y0,y1,q) + arc(q, h||30)];
 
 /* XVII */ SONGS.push({log:'Одиссей входит в собственный дом нищим.', scenes:[
   {t:'Пинок Меланфия', c:'По дороге в город, у источника, козопас Меланфий осыпает нищего бранью и бьёт его ногой. Одиссей сдерживает гнев.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(232,'sand','umber');
      cypress(40,236,120); cypress(76,236,90);
      rect(300,190,80,42,'stone'); rect(296,186,88,7,'ash'); rect(310,196,60,30,'sea');
      line('azure',5,[340,150,340,196]); circle(340,148,8,'ash');
-     beast(120,266,0.9,'goat'); beast(70,276,0.85,'goat');
-     MEL({x:170,y:262,s:1.45,pose:'kick'});
-     BEGGAR({x:252,y:262,s:1.4,f:-1,pose:'hold',lean:-0.2});
+     beast(lerp(20,120,seg(k,0,0.4)),266,0.9,'goat',{gait:k<0.4?s*8:0}); beast(lerp(-30,70,seg(k,0,0.4)),276,0.85,'goat',{gait:k<0.4?s*8+1:0});
+     MEL({x:lerp(60,170,seg(k,0,0.45)),y:262,s:1.45,pose:k<0.45?walking(s):poseMix('stand','kick',seg(k,0.5,0.6)-seg(k,0.7,0.85))});
+     const hit = seg(k,0.55,0.65) - seg(k,0.7,0.9);
+     BEGGAR({x:252+hit*14,y:262,s:1.4,f:-1,pose:'hold',lean:-0.25*hit});
    }},
   {t:'Пёс Аргос', c:'У ворот на куче навоза лежит старый брошенный пёс Аргос. Узнав хозяина, он виляет хвостом, но подойти уже не может — и умирает, увидев его через двадцать лет.',
-   d:()=>{
+   d:(k,s)=>{
      porch({floor:236,cols:[48,352]});
      rect(150,96,100,140,'brown'); rect(198,96,4,140,'umber');
      mound(110,252,150,30,'umber');
-     dogLying(96,236,1.3);
-     BEGGAR({x:280,y:262,s:1.45,f:-1,pose:'mourn',item:null});
+     const alive = k<0.78;
+     at(96,236,1.3,()=>{
+       ellipse(0,-9,26,9,'umber');
+       line('umber',5,[16,-4,34,-2]);
+       const lift = alive ? seg(k,0.3,0.45)*8 : 0;
+       ellipse(36,-12-lift,9,7,'umber'); ellipse(44,-9-lift,6,4,'umber');
+       poly('umber',[32,-18-lift,30,-28-lift,38,-19-lift]);
+       if(alive) circle(39,-14-lift,1.4,'ink');
+       const wag = alive && k>0.4 ? osc(s,2.4)*8 : 0;
+       curve('umber',4,`M-26,-10 q-10,${wag} -14,${8+wag}`);
+     });
+     label('Аргос', 120, 196);
+     BEGGAR({x:lerp(420,280,seg(k,0,0.35)),y:262,s:1.45,f:-1,pose:k<0.35?walking(s,0.8):poseMix('hold','mourn',seg(k,0.7,0.85)),item:k<0.7?HOLD.staff:null});
    }},
   {t:'Подаяние', c:'Одиссей обходит пирующих с сумой, прося подаяния. Женихи дают кто хлеб, кто мясо — и смеются над бродягой.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
      table(250,240,1.3);
      circle(220,180,9,'ochre'); circle(250,180,10,'terra'); cup(280,180,0.9);
-     SUITOR({x:210,y:236,s:1.25,pose:'raise',item:HOLD.cup});
-     SUITOR({x:320,y:236,s:1.25,f:-1,pose:'point',hair:'umber',cloak:'olive'});
-     BEGGAR({x:100,y:240,s:1.45,pose:'plead',item:null,front:h=> ellipse(h[0]-6,h[1]+30,10,13,'umber')});
+     SUITOR({x:210,y:236,s:1.25,pose:swing(s,0.6,'raise','hold'),item:HOLD.cup});
+     SUITOR({x:320,y:236,s:1.25,f:-1,pose:poseMix('stand','point',seg(k,0.3,0.45)),hair:'umber',cloak:'olive'});
+     const q = seg(k,0.45,0.7);
+     if(k>0.45) circle(lerp(300,150,q),lerp(160,150,q)+arc(q,20),8,'ochre');
+     BEGGAR({x:lerp(60,110,seg(k,0,0.4)),y:240,s:1.45,pose:arrive(k,s,0.4,'plead'),item:null,front:h=> ellipse(h[0]-6,h[1]+30,10,13,'umber')});
    }},
   {t:'Скамейка Антиноя', c:'Лишь Антиной отказывает и швыряет в нищего скамейкой. Одиссей стоит, как скала, и молча качает головой, затаив мщение.',
-   d:()=>{
+   d:(k,s)=>{
      hallNight({});
-     SUITOR({x:110,y:244,s:1.5,pose:'throw',front:()=>{}});
-     at(220,110,1.1,()=> stool(0,0,1,'umber'), false, 0.7);
-     curve('ash',3,'M130,70 Q170,60 200,90');
-     BEGGAR({x:300,y:244,s:1.5,f:-1,pose:'hold'});
+     SUITOR({name:'Антиной',x:110,y:244,s:1.5,pose:poseMix('stand','throw',seg(k,0.1,0.3)) });
+     const q = seg(k,0.3,0.6);
+     if(k>0.28){ const [x,y] = flyAt(q,120,90,280,150,50); at(x,y,1.1,()=> stool(0,0,1,'umber'), false, q*4); }
+     const hit = seg(k,0.58,0.65) - seg(k,0.66,0.8);
+     BEGGAR({x:300,y:244,s:1.5,f:-1,pose:'hold',lean:-0.12*hit + (k>0.75?osc(s,0.8)*0.05:0)});
    }},
   {t:'Знак Телемаха', c:'Пенелопа зовёт странника поговорить об Одиссее. В этот миг Телемах громко чихает — и мать смеётся: доброе знамение для дома.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[200]});
-     PEN({x:120,y:240,s:1.5,pose:'greet'});
+     PEN({x:120,y:240,s:1.5,pose:k<0.6?'greet':poseMix('greet','bothup',seg(k,0.62,0.75))});
      EUM({x:270,y:240,s:1.4,f:-1,pose:'stand'});
-     TEL({x:350,y:240,s:1.3,f:-1,pose:'mourn'});
+     const sneeze = seg(k,0.45,0.52) - seg(k,0.53,0.62);
+     TEL({x:350,y:240,s:1.3,f:-1,pose:poseMix('stand','mourn',sneeze),lean:sneeze*0.35});
+     if(sneeze>0.4) label('апчхи!', 320, 96);
    }}
 ]});
 
 /* XVIII */ SONGS.push({log:'Нищий против нищего — а женихи всё ещё не понимают, кто перед ними.', scenes:[
   {t:'Вызов Ира', c:'Попрошайка Ир гонит Одиссея с порога. Женихи потешаются и устраивают кулачный бой: победителю — козий желудок с салом и кровью.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[200]});
      fire(200,240,1.0); line('umber',3,[170,196,230,196]); ellipse(200,196,14,8,'terra');
-     figure({x:110,y:240,s:1.6,pose:'point',dress:'stone',trim:'slate',fold:'slate',hair:'ink',beard:true,skin:'skin'});
+     figure({name:'Ир',x:lerp(60,110,seg(k,0,0.3)),y:240,s:1.6,pose:k<0.3?walking(s):swing(s,1.2,'point','strike'),dress:'stone',trim:'slate',fold:'slate',hair:'ink',beard:true,skin:'skin'});
      BEGGAR({x:300,y:240,s:1.4,f:-1,pose:'hold'});
    }},
   {t:'Один удар', c:'Одиссей подтыкает рубище, и все видят его могучие плечи. Одним ударом под ухо он валит Ира и выволакивает его за ворота.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'wine'});
-     ODY({x:150,y:244,s:1.55,pose:'strike',dress:'umber',trim:'brown',cloak:null,old:true,beard:true});
-     figure({x:268,y:250,s:1.4,f:-1,rot:0.6,pose:'fall',dress:'stone',trim:'slate',hair:'ink',beard:true});
-     sparkles(220,80,40,40,5,5);
+     const punch = seg(k,0.25,0.35);
+     ODY({x:150,y:244,s:1.55,pose:poseMix('stand','strike',punch),dress:'umber',trim:'brown',cloak:null,old:true,beard:true});
+     const fall = seg(k,0.33,0.6);
+     figure({name:'Ир',x:lerp(250,290,fall),y:244+fall*6,s:1.4,f:-1,rot:fall*1.3,pose:poseMix('strike','fall',fall),dress:'stone',trim:'slate',hair:'ink',beard:true});
+     if(k>0.3 && k<0.45) sparkles(210,80,40,40,Math.floor(s*8),6);
    }},
   {t:'Тщетное предупреждение', c:'Добрый Амфином поднимает за странника кубок. Одиссей предупреждает его: беги, расплата близка. Но тот остаётся — его судьба уже решена.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
-     SUITOR({x:280,y:240,s:1.5,f:-1,pose:'raise',dress:'marble',trim:'olive',cloak:'olive',hair:'umber',item:HOLD.cup});
-     BEGGAR({x:120,y:240,s:1.5,pose:'raise',item:null});
+     SUITOR({name:'Амфином',x:k<0.65?280:lerp(280,340,seg(k,0.65,1)),y:240,s:1.5,f:k<0.65?-1:1,pose:k<0.65?poseMix('hold','raise',seg(k,0.05,0.2)):walking(s,0.8),dress:'marble',trim:'olive',cloak:'olive',hair:'umber',item:HOLD.cup});
+     BEGGAR({x:120,y:240,s:1.5,pose:poseMix('hold','raise',seg(k,0.3,0.45)),item:null});
    }},
   {t:'Дары женихов', c:'Афина делает Пенелопу прекраснее прежнего. Она выходит к женихам и выманивает у них дары: пеплос, ожерелье из золота и янтаря, серьги.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'lapis',frieze:'gold'});
-     sparkles(80,40,90,90,31,12);
-     PEN({x:120,y:244,s:1.6,pose:'stand',veil:'gold'});
-     necklace(250,150,1.4);
-     SUITOR({x:320,y:244,s:1.45,f:-1,pose:'greet'});
-     cloth(220,200,50,40,'purple');
+     sparkles(80,40,90,90,Math.floor(s*2),12);
+     PEN({x:120,y:244,s:1.6,pose:poseMix('stand','greet',seg(k,0.55,0.7)),veil:'gold'});
+     const q = seg(k,0.2,0.6);
+     necklace(lerp(300,220,q),150,1.4);
+     SUITOR({name:'Эвримах',x:lerp(380,320,seg(k,0,0.3)),y:244,s:1.45,f:-1,pose:arrive(k,s,0.3,'greet')});
+     if(k>0.6) cloth(lerp(330,250,seg(k,0.6,0.85)),200,50,40,'purple');
    }},
   {t:'Дерзость Эвримаха', c:'Служанка Меланто дерзит страннику, а Эвримах смеётся над его лысиной и швыряет скамейку — но попадает в виночерпия.',
-   d:()=>{
+   d:(k,s)=>{
      hallNight({});
-     SUITOR({x:96,y:244,s:1.45,pose:'throw',dress:'marble',hair:'ochre',cloak:'red'});
-     at(200,90,1.0,()=> stool(0,0,1,'umber'), false, -0.5);
-     figure({x:250,y:244,s:1.2,pose:'fall',rot:0.5,dress:'cream',trim:'ochre',hair:'umber',item:h=> amphora(h[0]+10,h[1]+20,0.5,'bronze')});
-     MAID({x:340,y:244,s:1.35,f:-1,pose:'point',dress:'red',trim:'ink'});
+     SUITOR({name:'Эвримах',x:96,y:244,s:1.45,pose:poseMix('stand','throw',seg(k,0.25,0.4)),dress:'marble',hair:'ochre',cloak:'red'});
+     const q = seg(k,0.4,0.65);
+     if(k>0.38){ const [x,y] = flyAt(q,110,90,250,140,40); at(x,y,1.0,()=> stool(0,0,1,'umber'), false, -q*4); }
+     const f = seg(k,0.63,0.85);
+     figure({name:'виночерпий',x:250,y:244,s:1.2,rot:f*0.9,pose:poseMix('hold','fall',f),dress:'cream',trim:'ochre',hair:'umber',item:h=> amphora(h[0]+10,h[1]+20,0.5,'bronze')});
+     MAID({name:'Меланто',x:340,y:244,s:1.35,f:-1,pose:swing(s,0.6,'point','stand'),dress:'red',trim:'ink'});
    }}
 ]});
 
 /* XIX */ SONGS.push({log:'Ночной разговор, в котором Пенелопа ещё не узнаёт мужа.', scenes:[
   {t:'Золотой светильник', c:'Ночью отец и сын выносят оружие из зала. Афина невидимо несёт перед ними золотой светильник, и стены озаряются чудесным светом.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); rect(0,0,SW,22,'brown'); ground(240,'brown','umber');
-     glow(200,96,44); lamp(196,104,1.5);
-     ODY({x:110,y:244,s:1.45,pose:'hold',item:HOLD.shield,dress:'umber',trim:'brown',cloak:null,old:true});
-     TEL({x:300,y:244,s:1.45,f:-1,pose:'hold',item:HOLD.spear});
+     const lx = lerp(120,300,seg(k,0,1));
+     glow(lx,96+osc(s,0.5)*5,44); lamp(lx-4,104+osc(s,0.5)*5,1.5);
+     label('свет Афины', lx, 40);
+     const d = seg(k,0,1)*130;
+     ODY({x:20+d,y:244,s:1.45,pose:poseMix('holdwalk','holdwalk2',0.5+0.5*osc(s,0.6)),item:HOLD.shield,dress:'umber',trim:'brown',cloak:null,old:true});
+     TEL({x:110+d,y:244,s:1.45,pose:poseMix('holdwalk','holdwalk2',0.5+0.5*osc(s,0.6,0.5)),item:HOLD.spear});
    }},
   {t:'Беседа у очага', c:'Пенелопа расспрашивает странника. Он описывает плащ Одиссея и золотую пряжку с псом, держащим в лапах оленёнка, — и она плачет, узнав свой подарок мужу.',
-   d:()=>{
+   d:(k,s)=>{
      hallNight({});
      fire(200,240,1.2);
-     throne(100,244,1.25); PEN({x:100,y:244,s:1.4,pose:'sitmourn'});
-     stool(310,244,1.1); BEGGAR({x:310,y:244,s:1.35,f:-1,pose:'sit',item:null});
-     circle(300,70,24,'gold'); beast(298,82,0.45,'hound',{n:'umber'});
+     throne(100,244,1.25); PEN({x:100,y:244,s:1.4,pose:poseMix('sitgreet','sitmourn',seg(k,0.55,0.7))});
+     stool(310,244,1.1); BEGGAR({x:310,y:244,s:1.35,f:-1,pose:swing(s,0.5,'sit','sitgreet'),item:null});
+     const g = seg(k,0.25,0.45);
+     if(g>0){ circle(300,70,24*g,'gold'); if(g>0.8){ beast(298,82,0.45,'hound',{n:'umber'}); label('пряжка', 300, 40); } }
    }},
   {t:'Шрам', c:'Старая Эвриклея омывает гостю ноги и нащупывает шрам от клыка кабана, полученный на охоте у Парнаса. Таз опрокидывается, но Одиссей велит ей молчать.',
-   d:()=>{
+   d:(k,s)=>{
      hallNight({cols:[30]});
-     circle(320,80,48,'cream'); ring(320,80,48,5,'gold'); beast(312,104,0.9,'boar');
-     stool(110,244,1.1); BEGGAR({x:110,y:244,s:1.4,pose:'sit',item:null});
-     at(190,246,0.9,()=> basin(0,0,1), false, 0.4);
-     NURSE({x:232,y:244,s:1.35,f:-1,pose:'kneel'});
+     const m = seg(k,0.3,0.45);
+     if(m>0){ circle(320,80,48*m,'cream'); ring(320,80,48*m,5,'gold'); if(m>0.9){ beast(312,104,0.9,'boar'); label('кабан на Парнасе', 320, 24); } }
+     stool(110,244,1.1); BEGGAR({x:110,y:244,s:1.4,pose:k<0.55?'sit':'sitgreet',item:null});
+     const tip = seg(k,0.45,0.55);
+     at(190,246,0.9,()=> basin(0,0,1), false, 0.4 + tip*1.2);
+     if(tip>0.5) ellipse(200,262,30*tip,5,'sea');
+     NURSE({x:232,y:244,s:1.35,f:-1,pose:k<0.45?swing(s,0.8,'kneel',{drop:16,arms:[[10,-60,20,-50],[12,-62,24,-50]],legs:POSES.kneel.legs,kneel:true}):'kneelup'});
    }},
   {t:'Сон о гусях', c:'Пенелопа рассказывает сон: орёл убил её двадцать гусей и сказал человеческим голосом: «Гуси — это женихи, а я — твой муж».',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(214,'sand','umber');
-     bird(200,82,2.0,{n:'umber',n2:'brown'});
+     const dive = seg(k,0.2,0.55);
+     bird(lerp(330,200,dive),lerp(40,190,dive)-seg(k,0.6,0.9)*120,2.0,{name:'орёл',n:'umber',n2:'brown',flap:osc(s,1.2)});
+     label('гуси', 200, 296);
      const r = rnd(41);
-     for(let i=0;i<7;i++){ const x=50+i*50+r()*10, y=244+(i%3)*18; at(x,y,0.85,()=>{ ellipse(0,-14,18,10,'marble'); line('marble',6,[12,-18,18,-34]); circle(20,-36,5,'marble'); poly('ochre',[24,-37,32,-34,24,-33]); line('ochre',2.5,[-2,-4,-2,4]); line('ochre',2.5,[4,-4,4,4]); }, i%2===1); }
+     for(let i=0;i<7;i++){
+       const x=50+i*50+r()*10, y=244+(i%3)*18, dead = k>0.5;
+       at(x,y,0.85,()=>{ ellipse(0,-14,18,10,'marble'); if(!dead){ line('marble',6,[12,-18,18,-34]); circle(20,-36+osc(s,1,i/7)*2,5,'marble'); poly('ochre',[24,-37,32,-34,24,-33]); } else { line('marble',6,[12,-12,30,-8]); circle(32,-8,5,'marble'); } line('ochre',2.5,[-2,-4,-2,4]); line('ochre',2.5,[4,-4,4,4]); }, i%2===1);
+     }
    }},
   {t:'Лук и двенадцать топоров', c:'Наутро Пенелопа решает: она выйдет за того, кто натянет лук Одиссея и пустит стрелу сквозь двенадцать топоров.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[]});
      bow(120,120,1.8,Math.PI/2);
-     for(let i=0;i<12;i++) axe(150+i*20,240,0.9);
-     PEN({x:70,y:244,s:1.4,pose:'point'});
+     const n = Math.floor(lerp(0,12.99,seg(k,0.15,0.8)));
+     for(let i=0;i<n;i++) axe(150+i*20,240,0.9);
+     PEN({x:70,y:244,s:1.4,pose:poseMix('stand','point',seg(k,0,0.15))});
    }}
 ]});
 
 /* XX */ SONGS.push({log:'Знамения сгущаются над домом женихов.', scenes:[
   {t:'«Терпи, сердце»', c:'Одиссей не спит в сенях на бычьей шкуре. Служанки со смехом бегут к женихам, и сердце его рычит, как собака над щенками. «Терпи, сердце: ты и худшее стерпело».',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(10,51,90); ground(236,'brown');
      shape('umber','M40,262 L250,256 L262,276 L30,282 Z');
      lying(BEGGAR, 236, 258, 1.05, {eye:null, item:null});
-     MAID({x:300,y:236,s:1.15,pose:'walk',item:HOLD.torch});
-     MAID({x:360,y:236,s:1.1,pose:'walk',dress:'red'});
+     const d = seg(k,0,1)*150;
+     MAID({name:'служанки',x:180+d,y:236,s:1.15,pose:walking(s,1.1),item:HOLD.torch});
+     MAID({x:120+d,y:236,s:1.1,pose:walking(s,1.1),dress:'red'});
    }},
   {t:'Гром с ясного неба', c:'Одиссей просит у Зевса знамения. Гром гремит с безоблачного неба, а старая рабыня у жерновов проклинает женихов: пусть этот пир станет для них последним.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(232,'sand','umber');
-     bolt(300,70,1.6,0.2); sparkles(250,30,100,80,61,8);
-     quern(170,262,1.6);
-     NURSE({x:110,y:262,s:1.3,pose:'kneel',veil:'cream'});
+     if(k>0.25 && k<0.5){ bolt(300,70,1.6,0.2); sparkles(250,30,100,80,Math.floor(s*8),8); }
+     at(170,262,1.6,()=> quern(0,0,1), false, 0);
+     line('umber',3*1.6,[170+8*1.6,262-16*1.6, 170+Math.cos(s*2)*14, 262-30*1.6]);
+     NURSE({name:'рабыня',x:110,y:262,s:1.3,pose:k<0.5?swing(s,1,'kneel',{drop:16,arms:[[12,-62,22,-54],[14,-64,26,-56]],legs:POSES.kneel.legs,kneel:true}):'kneelup',veil:'cream'});
    }},
   {t:'Бычье копыто', c:'Ктесипп швыряет в странника бычьим копытом. Одиссей уклоняется, и копыто бьёт в стену. Телемах впервые открыто грозит женихам.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
-     SUITOR({x:90,y:244,s:1.45,pose:'throw',dress:'marble',trim:'red',cloak:'red',hair:'brown'});
-     hoof(210,110,1.4,0.8); curve('ash',3,'M110,80 Q160,70 196,100');
-     BEGGAR({x:262,y:244,s:1.4,f:-1,pose:'hold',lean:0.4});
-     TEL({x:345,y:244,s:1.4,f:-1,pose:'point'});
+     SUITOR({name:'Ктесипп',x:90,y:244,s:1.45,pose:poseMix('stand','throw',seg(k,0.1,0.25)),dress:'marble',trim:'red',cloak:'red',hair:'brown'});
+     const q = seg(k,0.25,0.55);
+     if(k>0.25) { const [x,y] = flyAt(q,110,80,300,110,30); hoof(x,y,1.4,q*5); }
+     BEGGAR({x:262,y:244,s:1.4,f:-1,pose:'hold',lean:0.45*(seg(k,0.3,0.42)-seg(k,0.55,0.7))});
+     TEL({x:345,y:244,s:1.4,f:-1,pose:poseMix('stand','point',seg(k,0.6,0.75))});
    }},
   {t:'Видение Феоклимена', c:'На женихов нападает безумный смех, мясо в их руках сочится кровью. Феоклимен видит: стены в крови, сени полны теней, солнце погасло.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'wine',frieze:'ink'});
-     splat(120,90,10,1); splat(280,70,12,2); splat(340,150,9,3); splat(60,170,8,4);
-     circle(200,60,22,'ink'); ring(200,60,24,3,'ash');
-     ghosts(5, 71, [160,190,360,230]);
-     figure({x:90,y:244,s:1.45,pose:'point',long:true,beard:true,dress:'cream',cloak:'olive',trim:'umber',hair:'ink',wreath:true});
+     const spl = [[120,90,10],[280,70,12],[340,150,9],[60,170,8],[200,120,7],[240,180,9]];
+     spl.forEach(([x,y,r],i)=>{ if(k > 0.1+i*0.1) splat(x,y,r,i+1); });
+     const dark = seg(k,0.3,0.8);
+     circle(200,60,22,dark>0.5?'ink':'gold'); ring(200,60,24,3,dark>0.5?'ash':'gold2');
+     ghosts(5, 71, [160,190,360,230], s);
+     figure({name:'Феоклимен',x:90,y:244,s:1.45,pose:swing(s,0.5,'point','raise'),long:true,beard:true,dress:'cream',cloak:'olive',trim:'umber',hair:'ink',wreath:true});
    }}
 ]});
 
 /* XXI */ SONGS.push({log:'Лук Одиссея ждёт того, кто сможет его натянуть.', scenes:[
   {t:'Лук Ифита', c:'Пенелопа приносит из кладовой лук — давний дар Ифита. Положив его на колени, она долго плачет над ним.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'umber',frieze:'brown',cols:[]});
      amphora(330,240,1.1,'ochre'); amphora(366,240,1.0,'terra'); cloth(20,150,60,40,'red');
      stool(190,240,1.2);
-     PEN({x:190,y:240,s:1.45,pose:'sitmourn'});
+     PEN({x:190,y:240,s:1.45,pose:poseMix('sit','sitmourn',seg(k,0.2,0.4)),lean:k>0.4?osc(s,0.4)*0.05:0});
      bow(214,196,1.45,-Math.PI/2+0.08);
+     label('лук Одиссея', 214, 150);
    }},
   {t:'Двенадцать топоров', c:'Телемах выкапывает ров и ставит в ряд двенадцать топоров. Стрела должна пройти сквозь все двенадцать колец.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[]});
-     rect(90,238,300,6,'brown');
-     for(let i=0;i<12;i++) axe(110+i*24,240,1.0);
-     TEL({x:60,y:244,s:1.4,pose:'point'});
+     rect(90,238,300*seg(k,0,0.2),6,'brown');
+     const n = Math.floor(lerp(0,12.99,seg(k,0.15,0.9)));
+     for(let i=0;i<n;i++) axe(110+i*24,240,1.0);
+     TEL({x:lerp(60,110+Math.max(0,n-1)*24-20,seg(k,0.15,0.9)),y:244,s:1.4,pose:k<0.9?swing(s,1,'crouch','stand'):'point'});
    }},
   {t:'Никто не может', c:'Первым лук берёт жрец Леодей — и не может согнуть. Женихи греют лук у огня, натирают салом, но тетива не поддаётся никому.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'wine'});
      fire(310,240,1.2);
-     SUITOR({x:150,y:244,s:1.5,pose:'archer',long:true,dress:'marble',trim:'gold',cloak:null,hair:'ash',beard:true,wreath:true,item:h=> bow(h[0]+2,h[1],1,0)});
-     SUITOR({x:250,y:244,s:1.3,f:-1,pose:'mourn'});
+     const strain = k<0.7 ? 0.5+0.5*osc(s,1.1) : 0;
+     SUITOR({name:'Леодей',x:150,y:244,s:1.5,pose:k<0.7?poseMix('archer','hold',strain*0.5):'mourn',lean:strain*0.15,long:true,dress:'marble',trim:'gold',cloak:null,hair:'ash',beard:true,wreath:true,item:k<0.7?h=> bow(h[0]+2,h[1],1,strain*0.1):null});
+     SUITOR({x:250,y:244,s:1.3,f:-1,pose:swing(s,0.5,'mourn','point')});
    }},
   {t:'Шрам для верных', c:'Во дворе Одиссей открывается Евмею и волопасу Филойтию и показывает шрам. Они плачут от радости и клянутся помочь.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(228,'ochre','umber'); fenceStones(214);
-     BEGGAR({x:200,y:262,s:1.55,pose:'raise',item:null});
-     line('red',4,[192,226,204,232]);
-     EUM({x:90,y:262,s:1.4,pose:'hug'});
-     figure({x:320,y:262,s:1.4,f:-1,pose:'plead',dress:'ochre',trim:'umber',fold:'umber',hair:'umber',beard:true});
+     BEGGAR({x:200,y:262,s:1.55,pose:poseMix('hold','raise',seg(k,0.1,0.3)),item:null});
+     if(k>0.25){ line('red',4,[192,226,204,232]); label('шрам', 198, 214); }
+     const c = seg(k,0.45,0.75);
+     EUM({x:lerp(60,130,c),y:262,s:1.4,pose:k<0.45?'stand':'hug'});
+     figure({name:'Филойтий',x:lerp(350,270,c),y:262,s:1.4,f:-1,pose:k<0.45?'stand':'plead',dress:'ochre',trim:'umber',fold:'umber',hair:'umber',beard:true});
    }},
   {t:'Тетива поёт', c:'Нищий берёт лук и натягивает его легко, как певец струну. Тетива звенит, словно ласточка, Зевс гремит, и стрела пролетает сквозь все топоры.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[]});
-     bolt(330,50,0.9,0.2);
+     if(k>0.35 && k<0.6) bolt(330,50,0.9,0.2);
      for(let i=0;i<8;i++) axe(170+i*26,240,0.85);
-     line('ash',2,[160,197,380,197]);
-     BEGGAR({x:90,y:244,s:1.45,pose:'archer',item:HOLD.bow});
+     const q = seg(k,0.45,0.75);
+     if(k>0.45){ line('ash',2,[150,197,lerp(150,380,q),197]); arrow(lerp(150,380,q)-24,197,lerp(150,380,q),197); }
+     BEGGAR({x:90,y:244,s:1.45,pose:poseMix('hold','archer',seg(k,0.05,0.3)),item:k>0.2?(h,b)=>{ bow(h[0]+1,h[1],1); if(k<0.45) arrow(b[0],b[1],h[0]+20,h[1]); }:HOLD.staff});
+     if(k>0.45 && k<0.7) bird(140,140,0.4,{n:'lapis',n2:'azure',head:'lapis',beak:'ink',flap:osc(s,3)});
    }}
 ]});
 
 /* XXII */ SONGS.push({log:'Нищий сбрасывает рубище — и становится царём.', scenes:[
   {t:'Первая стрела', c:'Одиссей сбрасывает лохмотья и встаёт на пороге. Первая стрела — Антиною в горло, в тот миг, когда он подносит к губам золотой кубок.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
-     ODY({x:96,y:244,s:1.55,pose:'archer',cloak:null,item:HOLD.bow});
-     SUITOR({x:290,y:250,s:1.45,f:-1,rot:-0.35,pose:'fall'});
-     cup(330,130,1.1);
-     at(250,240,1.1,()=> table(0,0,0.6), false, 0.25);
+     ODY({x:96,y:244,s:1.55,pose:poseMix('stand','archer',seg(k,0,0.2)),cloak:null,item:(h,b)=>{ bow(h[0]+1,h[1],1); if(k<0.25) arrow(b[0],b[1],h[0]+20,h[1]); }});
+     const q = seg(k,0.25,0.4);
+     if(k>0.25 && k<0.42) arrow(lerp(140,270,q)-24,128,lerp(140,270,q),128);
+     const fall = seg(k,0.4,0.7);
+     SUITOR({name:'Антиной',x:290,y:250,s:1.45,f:-1,rot:-0.35*fall,pose:k<0.4?'sitdrink':poseMix('raise','fall',fall),item:k<0.4?HOLD.cup:null});
+     if(k>=0.4) cup(lerp(300,330,fall),lerp(130,240,fall),1.1);
+     at(250,240,1.1,()=> table(0,0,0.6), false, 0.25*fall);
    }},
   {t:'«Я вернулся»', c:'Женихи кидаются к стенам за оружием — а его там нет. «Псы! Вы думали, я не вернусь из-под Трои?» Эвримах молит о пощаде, но падает от стрелы.',
-   d:()=>{
+   d:(k,s)=>{
      hallNight({});
      for(let x=120;x<380;x+=50){ line('umber',4,[x,80,x+10,80]); }
-     ODY({x:110,y:244,s:1.6,pose:'raise',cloak:'red',item:null,front:(h)=> bow(h[0]-2,h[1]+16,0.9,-0.3)});
-     SUITOR({x:250,y:244,s:1.35,f:-1,pose:'plead'});
-     SUITOR({x:330,y:244,s:1.35,pose:'run',f:1,dress:'marble',hair:'ochre',cloak:'red'});
+     ODY({x:110,y:244,s:1.6,pose:poseMix('stand','raise',seg(k,0,0.2)),cloak:'red',item:null,front:(h)=> bow(h[0]-2,h[1]+16,0.9,-0.3)});
+     const f = seg(k,0.55,0.8);
+     SUITOR({name:'Эвримах',x:250,y:244,s:1.35,f:-1,rot:f*1.1,pose:poseMix('plead','fall',f),dress:'marble',hair:'ochre',cloak:'red'});
+     SUITOR({x:lerp(300,360,seg(k,0,0.5))+osc(s,0.4)*20,y:244,s:1.35,pose:poseMix('run','run2',0.5+0.5*osc(s,1.4)),f:osc(s,0.2)>0?1:-1});
    }},
   {t:'Эгида Афины', c:'Афина ласточкой садится на балку и поднимает над залом эгиду. Женихи мечутся в ужасе, как стадо коров, ужаленных оводом.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'wine',cols:[]});
      rect(0,40,SW,10,'umber');
-     at(80,40,0.5,()=> bird(0,0,1,{n:'lapis',n2:'azure',head:'lapis',beak:'ink'}));
-     shield(200,110,46,{emblem:'gorgon',n:'olive'});
-     sparkles(130,60,140,100,81,16);
-     SUITOR({x:90,y:250,s:1.2,pose:'run'}); SUITOR({x:200,y:254,s:1.2,pose:'run',f:-1,dress:'marble',cloak:'olive'});
-     SUITOR({x:310,y:250,s:1.2,pose:'run',hair:'umber'});
+     at(lerp(20,80,seg(k,0,0.25)),40,0.5,()=> bird(0,0,1,{n:'lapis',n2:'azure',head:'lapis',beak:'ink',flap:k<0.25?osc(s,3):0}));
+     label('Афина-ласточка', 80, 22);
+     const a = seg(k,0.2,0.5);
+     shield(200,lerp(60,110,a),46*a+4,{emblem:'gorgon',n:'olive'});
+     if(a>0.5){ sparkles(130,60,140,100,Math.floor(s*3),16); label('эгида', 200, 52); }
+     for(let i=0;i<3;i++){ const ph = i/3; SUITOR({x:200+Math.sin(s*1.1+ph*TAU)*130,y:254-i*2,s:1.2,pose:poseMix('run','run2',0.5+0.5*osc(s,1.5,ph)),f:Math.cos(s*1.1+ph*TAU)>0?1:-1,hair:i===1?'umber':'ink',dress:i===1?'marble':'cream'}); }
    }},
   {t:'Пощада певцу', c:'Певец Фемий припадает к ногам Одиссея с лирой в руках. Телемах заступается за него и за глашатая Медона — их щадят.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
-     ODY({x:290,y:244,s:1.55,f:-1,pose:'hold',item:HOLD.sword,cloak:'red'});
-     figure({x:170,y:244,s:1.35,pose:'kneel',dress:'azure',trim:'gold',hair:'umber',wreath:true,front:h=> lyre(h[0]+2,h[1]+16,0.9)});
-     TEL({x:70,y:244,s:1.4,pose:'greet'});
+     ODY({x:290,y:244,s:1.55,f:-1,pose:poseMix('hold','stand',seg(k,0.7,0.85)),item:HOLD.sword,cloak:'red'});
+     figure({name:'Фемий',x:lerp(120,170,seg(k,0,0.3)),y:244,s:1.35,pose:k<0.3?walking(s):poseMix('stand','kneel',seg(k,0.3,0.4)),dress:'azure',trim:'gold',hair:'umber',wreath:true,front:h=> lyre(h[0]+2,h[1]+16,0.9)});
+     TEL({x:lerp(30,80,seg(k,0.45,0.65)),y:244,s:1.4,pose:k<0.45?'stand':arrive(k,s,0.65,'greet')});
    }},
   {t:'Очищение огнём', c:'Тела вынесены, зал отмыт. Одиссей велит принести огня и серы и окуривает свой дом, очищая его от скверны.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red'});
-     krater(200,240,1.3,'bronze'); fire(200,186,1.5);
-     for(let i=0;i<6;i++) circle(180+i*8,140-i*16,8+i*2,i%2?'ash':'gold2');
-     ODY({x:96,y:244,s:1.5,pose:'point',cloak:'red'});
-     NURSE({x:310,y:244,s:1.35,f:-1,pose:'hold',item:HOLD.torch});
+     krater(200,240,1.3,'bronze'); if(k>0.35) fire(200,186,1.5*seg(k,0.35,0.5));
+     if(k>0.4) for(let i=0;i<6;i++){ const q=((s*0.25+i/6)%1); circle(190+osc(s,0.3,i/6)*14,170-q*150,6+q*12,i%2?'ash':'gold2'); }
+     ODY({x:96,y:244,s:1.5,pose:swing(s,0.3,'point','stand'),cloak:'red'});
+     NURSE({x:lerp(400,300,seg(k,0,0.35)),y:244,s:1.35,f:-1,pose:k<0.35?walking(s,0.9):'hold',item:HOLD.torch});
    }}
 ]});
 
 /* XXIII */ SONGS.push({log:'Двадцать лет разлуки и одна тайна, известная лишь двоим.', scenes:[
   {t:'Эвриклея будит госпожу', c:'Эвриклея со смехом будит Пенелопу: «Одиссей вернулся!» Та не верит — это, должно быть, бог принял его облик.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(10,91,100); ground(250,'brown');
      bed(250,250,1.25);
-     lying(PEN, 338, 192, 1.0, {veil:null, cover:'wine'});
-     NURSE({x:110,y:250,s:1.4,pose:'bothup'});
+     const up = seg(k,0.4,0.6);
+     PEN({x:330,y:192,s:1.0,rot:lerp(-Math.PI/2,-0.9,up),eye:'none',veil:null,pose:'stand'});
+     rect(276,176,60,24,'wine');
+     NURSE({x:lerp(20,120,seg(k,0,0.35)),y:250,s:1.4,pose:k<0.35?walking(s,1.2):swing(s,1.4,'bothup','raise')});
    }},
   {t:'Молчание', c:'Пенелопа сходит в зал и молча садится напротив. Телемах упрекает её в жестокости, но Одиссей улыбается: у них есть знаки, ведомые лишь им двоим.',
-   d:()=>{
+   d:(k,s)=>{
      hall({wall:'red',cols:[]});
-     TEL({x:206,y:244,s:1.2,f:-1,pose:'point'});
+     TEL({x:206,y:244,s:1.2,f:k<0.6?-1:1,pose:k<0.6?swing(s,0.6,'point','stand'):'point'});
      fire(200,250,0.9);
      throne(90,244,1.2); PEN({x:90,y:244,s:1.35,pose:'sit'});
-     throne(318,244,1.2,'gold',true); ODY({x:318,y:244,s:1.4,f:-1,pose:'sit',cloak:'red'});
+     throne(318,244,1.2,'gold',true); ODY({x:318,y:244,s:1.4,f:-1,pose:poseMix('sit','sitgreet',seg(k,0.7,0.85)),cloak:'red'});
    }},
   {t:'Ложе из оливы', c:'Пенелопа велит вынести из спальни их ложе. Одиссей вспыхивает: его не сдвинуть — он сам вырубил ложе из пня живой оливы и вокруг выстроил спальню.',
-   d:()=>{
+   d:(k,s)=>{
      bg('cream'); ground(250,'umber','brown');
      bed(250,250,1.3,{olive:true});
-     ODY({x:80,y:256,s:1.45,pose:'point',cloak:'red'});
-     PEN({x:370,y:256,s:1.25,f:-1,pose:'mourn'});
+     label('ложе на пне оливы', 160, 70);
+     ODY({x:80,y:256,s:1.45,pose:k<0.3?'stand':swing(s,0.8,'point','raise'),cloak:'red'});
+     PEN({x:370,y:256,s:1.25,f:-1,pose:poseMix('point','mourn',seg(k,0.25,0.45))});
    }},
   {t:'Узнавание', c:'Это и был тайный знак. Пенелопа бросается мужу на шею. Он желанен ей, как земля пловцу, выбравшемуся из бурного моря.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(12,93,120); ground(240,'umber');
-     glow(330,90,20); lamp(328,96,1);
-     ODY({x:172,y:258,s:1.6,pose:'hug',cloak:'red'});
-     PEN({x:234,y:258,s:1.5,f:-1,pose:'hug'});
+     glow(330,90,20+osc(s,0.5)*2); lamp(328,96,1);
+     const c = seg(k,0,0.5);
+     ODY({x:lerp(120,172,c),y:258,s:1.6,pose:poseMix('greet','hug',c),cloak:'red'});
+     PEN({x:lerp(300,234,c),y:258,s:1.5,f:-1,pose:k<0.5?poseMix('stand','run',c):'hug'});
    }},
   {t:'Долгая ночь', c:'Афина удерживает Зарю у Океана и не даёт ей запрячь коней, чтобы ночь супругов длилась дольше.',
-   d:()=>{
+   d:(k,s)=>{
      bg('night'); stars(30,95,170);
      rect(0,200,SW,100,'rose'); seaBand(236);
-     chariot(150,214,1.1,{car:'gold',riders:()=> figure({x:-22,y:-24,s:0.65,female:true,dress:'rose',trim:'gold',hair:'ochre',halo:true,pose:'stand'})});
-     ATH({x:320,y:236,s:1.4,f:-1,pose:'greet',item:null});
+     at(150,214,1.1,()=>{
+       chariot(0,0,1,{car:'gold',riders:()=> figure({name:'Заря',x:-22,y:-24,s:0.65,female:true,dress:'rose',trim:'gold',hair:'ochre',halo:true,pose:'stand'})});
+     },false,osc(s,0.7)*0.05);
+     ATH({x:320,y:236,s:1.4,f:-1,pose:poseMix('stand','greet',seg(k,0.1,0.25)),item:null});
    }}
 ]});
 
 /* XXIV */ SONGS.push({log:'Последняя расплата и мир, дарованный богами.', scenes:[
   {t:'Тени женихов', c:'Гермес золотым жезлом ведёт тени женихов в Аид; они пищат, как летучие мыши. Там Агамемнон, услышав их рассказ, славит верность Пенелопы.',
-   d:()=>{
+   d:(k,s)=>{
      bg('slate'); ground(236,'brown');
-     bat(80,60,1.2); bat(150,40,1); bat(330,70,1.1);
-     ghosts(7, 101, [30,150,230,200]);
-     HERMES({x:310,y:256,s:1.5,pose:'holdwalk'});
+     for(let i=0;i<3;i++) bat(((s*30+i*130)%440)-20, 50+i*14+osc(s,1,i/3)*6, 1.1-i*0.1);
+     const d = seg(k,0,1)*120;
+     at(d,0,1,()=> ghosts(7, 101, [-60,150,140,200], s));
+     label('тени женихов', 60+d, 120);
+     HERMES({x:220+d,y:256,s:1.5,pose:poseMix('holdwalk','holdwalk2',0.5+0.5*osc(s,0.6))});
    }},
   {t:'Старик в саду', c:'Одиссей находит отца в саду: Лаэрт в заплатанном хитоне и кожаных рукавицах окапывает молодое деревце.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(222,'olive','leaf');
      tree(330,232,1.2,{fruit:'gold2',seed:9});
-     LAER({x:240,y:256,s:1.45,pose:'dig',item:h=>{ line('umber',4,[h[0],h[1],h[0]+16,h[1]+40]); poly('slate',[h[0]+12,h[1]+38, h[0]+26,h[1]+36, h[0]+20,h[1]+46]); }});
-     ODY({x:90,y:256,s:1.5,pose:'stand',cloak:'red'});
+     LAER({x:240,y:256,s:1.45,pose:k<0.7?swing(s,0.7,'dig',{arms:[[8,-70,18,-80],[10,-68,22,-84]],legs:POSES.dig.legs,lean:0.15}):'stand',item:h=>{ line('umber',4,[h[0],h[1],h[0]+16,h[1]+40]); poly('slate',[h[0]+12,h[1]+38, h[0]+26,h[1]+36, h[0]+20,h[1]+46]); }});
+     ODY({x:lerp(-20,100,seg(k,0,0.5)),y:256,s:1.5,pose:arrive(k,s,0.5,'stand'),cloak:'red'});
    }},
   {t:'Тринадцать груш', c:'Сын открывается. В доказательство он показывает шрам и перечисляет деревья, подаренные ему в детстве: тринадцать груш, десять яблонь, сорок смоковниц.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(214,'olive','leaf');
-     tree(50,224,0.9,{fruit:'gold2',seed:1}); tree(120,218,0.8,{fruit:'red',seed:2}); tree(290,218,0.8,{fruit:'purple',seed:3}); tree(360,224,0.9,{fruit:'gold2',seed:4});
-     ODY({x:172,y:266,s:1.55,pose:'hug',cloak:'red'});
-     LAER({x:232,y:266,s:1.4,f:-1,pose:'hug'});
+     const tr = [[50,224,0.9,'gold2'],[120,218,0.8,'red'],[290,218,0.8,'purple'],[360,224,0.9,'gold2']];
+     tr.forEach(([x,y,sc,f],i)=> tree(x,y,sc,{fruit:k>0.1+i*0.12?f:'olive',seed:i+1}));
+     if(k>0.15 && k<0.6) label(['груши','яблони','смоковницы','груши'][Math.min(3,Math.floor((k-0.15)/0.12))], 200, 40);
+     const c = seg(k,0.6,0.85);
+     ODY({x:lerp(140,172,c),y:266,s:1.55,pose:k<0.6?swing(s,0.5,'point','raise'):'hug',cloak:'red'});
+     LAER({x:lerp(262,232,c),y:266,s:1.4,f:-1,pose:k<0.6?'stand':'hug'});
    }},
   {t:'Копьё Лаэрта', c:'Эвпейт, отец Антиноя, ведёт родичей женихов мстить. Афина вселяет силу в старого Лаэрта — и тот первым же копьём поражает Эвпейта.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(230,'sand','umber');
-     sparkles(40,60,120,120,111,14);
-     LAER({x:110,y:262,s:1.5,pose:'throw',cap:null,armor:'bronze',helmet:'bronze',crest:'red',front:(h,b)=> spear(b[0]-30,b[1]+10,b[0]+30,b[1]-14)});
-     curve('ash',3,'M170,110 Q230,96 270,120');
-     SUITOR({x:310,y:262,s:1.4,f:-1,rot:-0.3,pose:'fall',old:true,helmet:'bronze',crest:'ink',armor:'bronze'});
+     if(k<0.4) sparkles(40,60,120,120,Math.floor(s*5),14);
+     LAER({x:110,y:262,s:1.5,pose:poseMix('stand','throw',seg(k,0.2,0.4)),cap:null,armor:'bronze',helmet:'bronze',crest:'red',front:(h,b)=>{ if(k<0.42) spear(b[0]-30,b[1]+10,b[0]+30,b[1]-14); }});
+     const q = seg(k,0.42,0.6);
+     if(k>0.42 && k<0.62){ const [x,y] = flyAt(q,150,110,300,140,25); spear(x-40,y+8,x,y); }
+     const f = seg(k,0.58,0.8);
+     SUITOR({name:'Эвпейт',x:lerp(380,310,seg(k,0,0.5)),y:262,s:1.4,f:-1,rot:-0.9*f,pose:k<0.5?walking(s):poseMix('point','fall',f),old:true,helmet:'bronze',crest:'ink',armor:'bronze'});
    }},
   {t:'Мир', c:'Зевс мечет молнию к ногам Афины, и богиня останавливает битву. Обе стороны клянутся хранить мир — «Одиссея» завершена.',
-   d:()=>{
+   d:(k,s)=>{
      bg('sky'); ground(234,'olive','leaf');
-     bolt(240,170,1.2,0.1); sparkles(150,60,110,170,121,20);
-     ATH({x:200,y:256,s:1.45,pose:'raise',item:h=> branch(h[0]+2,h[1]+8,1.2,0.2)});
+     if(k>0.15 && k<0.4) bolt(240,170,1.2,0.1);
+     sparkles(150,60,110,170,Math.floor(s*2),20);
+     ATH({x:200,y:256,s:1.45,pose:poseMix('stand','raise',seg(k,0.3,0.5)),item:h=> branch(h[0]+2,h[1]+8,1.2,0.2)});
      owl(332,190,0.7);
-     ODY({x:70,y:256,s:1.3,pose:'stand',cloak:'red',item:HOLD.spear});
+     ODY({x:70,y:256,s:1.3,pose:'stand',cloak:'red',item:h=> spear(h[0]-2,-1,lerp(h[0]+4,h[0]+40,seg(k,0.55,0.8)),lerp(h[1]-62,h[1]-20,seg(k,0.55,0.8)))});
    }}
 ]});
 
 /* ---------- ВЫКЛАДКА СЦЕНЫ В ПЛИТКИ ---------- */
 
-const SCENE_K = 2;                       // сцена рисуется в 800×600 px
+// сцену рисуем по 2 пикселя на плитку и берём цвет из центра каждой плитки
 const sceneCanvas = document.createElement('canvas');
-sceneCanvas.width = SW*SCENE_K; sceneCanvas.height = SH*SCENE_K;
 const sceneCtx = sceneCanvas.getContext('2d', {willReadFrequently:true});
+function drawScene(ctx, w, h, draw, k, s){
+  C = ctx; BASE_KX = w/SW; BASE_KY = h/SH;
+  C.setTransform(BASE_KX,0,0,BASE_KY,0,0);
+  C.clearRect(0,0,SW,SH);
+  bg('marble');
+  if(draw) draw(k||0, s||0);
+}
 
 // бордюр: на крупной сетке — греческий меандр, на мелкой — шахматка
 const borderSize = cols => cols>=88 ? 7 : 4;
@@ -3793,34 +4079,51 @@ function nearestPal(r,g,b){
   }
   return best;
 }
+const palMemo = new Map();
+function palIndex(r,g,b){
+  const key = (r<<16)|(g<<8)|b;
+  let v = palMemo.get(key);
+  if(v===undefined){ v = nearestPal(r,g,b); if(palMemo.size<50000) palMemo.set(key, v); }
+  return v;
+}
 
-// сцена → массив cols×rows RGBA (A — код материала плитки)
-function layScene(draw, cols, rows){
-  C = sceneCtx;
-  C.setTransform(SCENE_K,0,0,SCENE_K,0,0);
-  C.clearRect(0,0,SW,SH);
-  bg('marble');
-  if(draw) draw();
-  const img = C.getImageData(0,0,sceneCanvas.width,sceneCanvas.height).data;
+// разметка сетки: какие плитки — бордюр, какие — поле картины
+let gridMemo = null;
+function gridInfo(cols, rows){
+  if(gridMemo && gridMemo.cols===cols && gridMemo.rows===rows) return gridMemo;
+  const B = borderSize(cols), border = new Int16Array(cols*rows);
+  for(let iy=0; iy<rows; iy++) for(let ix=0; ix<cols; ix++){
+    const b = borderCell(ix, iy, cols, rows);
+    border[iy*cols+ix] = b ? PAL_KEYS.indexOf(b) : -1;
+  }
+  return gridMemo = {cols, rows, B, iw:cols-2*B, ih:rows-2*B, border};
+}
+
+// сцена в момент k → плитки cols×rows RGBA (A — код материала) и подписи героев
+function layScene(draw, cols, rows, k, s){
+  const G = gridInfo(cols, rows);
+  const w = G.iw*2, h = G.ih*2;
+  if(sceneCanvas.width!==w || sceneCanvas.height!==h){ sceneCanvas.width = w; sceneCanvas.height = h; }
+  LBL = [];
+  drawScene(sceneCtx, w, h, draw, k, s);
+  const found = LBL; LBL = null;
+  const img = sceneCtx.getImageData(0,0,w,h).data;
   const out = new Uint8Array(cols*rows*4);
-  const BORDER = borderSize(cols);
-  const iw = cols-2*BORDER, ih = rows-2*BORDER;
   for(let iy=0; iy<rows; iy++){
     for(let ix=0; ix<cols; ix++){
-      let pi;
-      const b = borderCell(ix, iy, cols, rows);
-      if(b){ pi = PAL_KEYS.indexOf(b); }
-      else {
-        const sx = Math.min(sceneCanvas.width-1, Math.floor((ix-BORDER+0.5)/iw*sceneCanvas.width));
-        const sy = Math.min(sceneCanvas.height-1, Math.floor((iy-BORDER+0.5)/ih*sceneCanvas.height));
-        const o = (sy*sceneCanvas.width + sx)*4;
-        pi = nearestPal(img[o], img[o+1], img[o+2]);
+      let pi = G.border[iy*cols+ix];
+      if(pi<0){
+        const o = (((iy-G.B)*2+1)*w + (ix-G.B)*2+1)*4;
+        pi = palIndex(img[o], img[o+1], img[o+2]);
       }
       const p = PAL_RGB[pi], q = (iy*cols+ix)*4;
       out[q]=p[0]; out[q+1]=p[1]; out[q+2]=p[2]; out[q+3]=255-p[3]*30;
     }
   }
-  return out;
+  const labels = found.map(l=>({t:l.t,
+    fx: Math.min(0.93, Math.max(0.07, (G.B + l.x/SW*G.iw)/cols)),
+    fy: Math.min(0.97, Math.max(0.12, (G.B + l.y/SH*G.ih)/rows))}));
+  return {data:out, labels};
 }
 
 /* ---------- WEBGL: ПЛИТКИ, ШВЫ, БЛИКИ ---------- */
@@ -3841,6 +4144,7 @@ uniform float uProg;
 uniform float uPat;
 uniform float uTime;
 uniform float uBorder;
+uniform float uMode;
 float h1(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
 vec2 h2(vec2 p){ return fract(sin(vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3))))*43758.5453); }
 vec2 site(vec2 c){
@@ -3884,6 +4188,13 @@ void main(){
   float same = step(length(A - B), 0.01);
   vec4 T = (same > 0.5 || lp < 0.5) ? A : B;
   float fs = mix(abs(cos(lp*3.14159265)), 1.0, same);
+  if(uMode > 0.5){
+    // внутри сцены плитки не переворачиваются, а перетекают из цвета в цвет, каждая чуть в свой миг
+    float lf = clamp((uProg - hA*0.35)/0.65, 0.0, 1.0);
+    lf = lf*lf*(3.0 - 2.0*lf);
+    T = vec4(mix(A.rgb, B.rgb, lf), lf < 0.5 ? A.a : B.a);
+    fs = 1.0;
+  }
 
   vec3 col = T.rgb;
   float mat = floor((1.0 - T.a)*255.0/30.0 + 0.5);
@@ -3960,7 +4271,7 @@ function MosaicGL(canvas){
     if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
     gl.useProgram(prog);
     loc = {};
-    ['uA','uB','uGrid','uPx','uProg','uPat','uTime','uBorder'].forEach(k=> loc[k]=gl.getUniformLocation(prog,k));
+    ['uA','uB','uGrid','uPx','uProg','uPat','uTime','uBorder','uMode'].forEach(k=> loc[k]=gl.getUniformLocation(prog,k));
     buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
@@ -3997,7 +4308,7 @@ function MosaicGL(canvas){
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
     },
     swap(){ const t=tex.from; tex.from=tex.to; tex.to=t; const d=last.from; last.from=last.to; last.to=d; },
-    draw(p, pat, time){
+    draw(p, pat, time, mode){
       if(lost) return;
       gl.viewport(0,0,canvas.width,canvas.height);
       gl.useProgram(prog);
@@ -4009,6 +4320,7 @@ function MosaicGL(canvas){
       gl.uniform1f(loc.uPat, pat);
       gl.uniform1f(loc.uTime, time);
       gl.uniform1f(loc.uBorder, borderSize(cols));
+      gl.uniform1f(loc.uMode, mode||0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
   };
@@ -4024,13 +4336,19 @@ function Mosaic2D(canvas){
     setGrid(c,r){ cols=c; rows=r; },
     upload(which, data){ if(which==='from') A=data; else B=data; },
     swap(){ const t=A; A=B; B=t; },
-    draw(p){
+    draw(p, pat, time, mode){
       if(!A) return;
       const W=canvas.width, H=canvas.height, cw=W/cols, ch=H/rows, g=Math.max(1, cw*0.12);
       ctx.fillStyle='#211b16'; ctx.fillRect(0,0,W,H);
       for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
         const i=(y*cols+x)*4;
         let src=A, sc=1;
+        if(mode===1 && B){
+          const r=A[i]+(B[i]-A[i])*p, g2=A[i+1]+(B[i+1]-A[i+1])*p, b=A[i+2]+(B[i+2]-A[i+2])*p;
+          ctx.fillStyle = `rgb(${r|0},${g2|0},${b|0})`;
+          ctx.fillRect(x*cw+g/2, y*ch+g/2, cw-g, ch-g);
+          continue;
+        }
         if(p>0 && B && (A[i]!==B[i]||A[i+1]!==B[i+1]||A[i+2]!==B[i+2])){
           const dl = Math.min(1, Math.hypot(x/cols-0.5, (y/rows-0.5)*0.75)*1.55);
           const lp = Math.max(0, Math.min(1, (p - dl*0.7)/0.3));
@@ -4057,28 +4375,52 @@ let cols = 0, rows = 0;
 const cache = new Map();
 let lastFocus = null;
 
+const LIVE_DT = 1/12;              // живые кадры внутри сцены — 12 в секунду, между ними плитки перетекают
+let mode = 0, liveAt = 0;
+
 function holdFor(s){
-  if(s.title) return 4.6;
-  return Math.max(6, Math.min(12, 3 + (s.c||'').length*0.048));
+  if(s.title) return 5;
+  return Math.max(7.5, Math.min(12, 3.5 + (s.c||'').length*0.05));
+}
+// ход действия текущей сцены: k от 0 до 1 за 80% показа, s — секунды после переворота плиток
+function sceneTime(){
+  if(reduceMotion) return {k:1, s:0};
+  const h = clock - sceneStart - TRANS;
+  if(h<=0) return {k:0, s:0};
+  return {k:Math.min(1, h/(holdFor(scenes[cur])*0.8)), s:h};
 }
 
 function songScenes(n){
   const def = SONGS[n-1];
-  const list = [{title:true, t:CHAPTER_TITLES[n-1], c:def.log, d:()=> titleCard(n)}];
+  const list = [{title:true, t:CHAPTER_TITLES[n-1], c:def.log, d:k=> titleCard(n, k)}];
   def.scenes.forEach(s=> list.push(s));
   return list;
 }
 
 function sceneData(i){
   const key = song+':'+i+':'+cols;
-  if(!cache.has(key)) cache.set(key, layScene(scenes[i].d, cols, rows));
+  if(!cache.has(key)) cache.set(key, layScene(scenes[i].d, cols, rows, reduceMotion ? 1 : 0, 0));
   return cache.get(key);
 }
 function blankData(){
   const key = 'blank:'+cols;
-  if(!cache.has(key)) cache.set(key, layScene(()=> bg('ink'), cols, rows));
+  if(!cache.has(key)) cache.set(key, layScene(()=> bg('ink'), cols, rows, 0, 0));
   return cache.get(key);
 }
+
+// подписи-имена поверх мозаики, как надписи на античных панно
+function setLabels(list){
+  const box = ui.labels, kids = box.children;
+  list.forEach((l,i)=>{
+    let el = kids[i];
+    if(!el){ el = document.createElement('span'); el.className = 'mp-label'; box.appendChild(el); }
+    if(el.textContent!==l.t) el.textContent = l.t;
+    el.style.left = (l.fx*100).toFixed(2)+'%';
+    el.style.top = (l.fy*100).toFixed(2)+'%';
+  });
+  while(kids.length > list.length) box.removeChild(box.lastChild);
+}
+function showLabels(v){ ui.labels.classList.toggle('on', v); }
 
 // разрешение холста: не выше 2× и ниже, если устройство не успевает рисовать
 let cssW = 0, cssH = 0, quality = 0;
@@ -4106,6 +4448,7 @@ function layout(){
   w = Math.floor(w); h = Math.floor(h);
   st.style.flex = '0 0 '+h+'px';            // на узком экране колонка плеера центрируется по вертикали
   ui.canvas.style.width = w+'px'; ui.canvas.style.height = h+'px';
+  ui.frame.style.width = w+'px'; ui.frame.style.height = h+'px';
   cssW = w; cssH = h;
   sizeCanvas();
   ui.progress.style.maxWidth = w+'px';
@@ -4152,11 +4495,14 @@ function paintProgress(){
 
 function go(i){
   if(i<0 || i>=scenes.length) return;
-  if(transOn){ renderer.swap(); transOn = false; }
+  // видимая картина всегда лежит в «to»: она становится исходной для переворота плиток
+  if(cur<0) renderer.upload('from', blankData().data); else renderer.swap();
   ended = false;
   ui.end.hidden = true;
-  if(cur<0) renderer.upload('from', blankData());
-  renderer.upload('to', sceneData(i));
+  const d = sceneData(i);
+  renderer.upload('to', d.data);
+  setLabels(d.labels); showLabels(false);
+  mode = 0;
   transOn = true;
   pattern = reduceMotion ? 3 : (pattern+1+Math.floor(Math.random()*3))%5;
   cur = i;
@@ -4188,15 +4534,27 @@ function frame(ts){
   lastDraw = ts;
   if(!paused && !ended) clock += dt;
   const e = clock - sceneStart;
-  let p = 0;
+  let p = 1;
   if(transOn){
-    if(e >= TRANS){ renderer.swap(); transOn = false; }
+    if(e >= TRANS){ transOn = false; liveAt = clock; showLabels(true); }
     else { const x = e/TRANS; p = x<0.5 ? 2*x*x : 1-Math.pow(-2*x+2,2)/2; }
+  }
+  if(!transOn){
+    // сцена оживает: перерисовываем её в новый момент действия
+    if(!reduceMotion && !paused && !ended && clock - liveAt >= LIVE_DT){
+      liveAt = clock;
+      const t = sceneTime();
+      const r = layScene(scenes[cur].d, cols, rows, t.k, t.s);
+      renderer.swap(); renderer.upload('to', r.data);
+      setLabels(r.labels);
+      mode = 1;
+    }
+    p = mode===1 ? Math.min(1, (clock - liveAt)/LIVE_DT) : 1;
   }
   if(!transOn && !paused && !ended && e >= TRANS + holdFor(scenes[cur])){
     if(cur+1 < scenes.length) go(cur+1); else finishSong();
   }
-  renderer.draw(transOn ? p : 0, pattern, reduceMotion ? 1.5 : ts/1000);
+  renderer.draw(p, pattern, reduceMotion ? 1.5 : ts/1000, transOn ? 0 : mode);
   paintProgress();
 }
 
@@ -4282,6 +4640,8 @@ function initPlayer(){
   ui.root = document.getElementById('mosaicPlayer');
   ui.stage = ui.root.querySelector('.mp-stage');
   ui.canvas = ui.root.querySelector('canvas');
+  ui.frame = ui.root.querySelector('.mp-frame');
+  ui.labels = ui.root.querySelector('.mp-labels');
   ui.top = ui.root.querySelector('.mp-song');
   ui.close = ui.root.querySelector('.mp-close');
   ui.capWrap = ui.root.querySelector('.mp-caption');
@@ -4336,9 +4696,10 @@ function initPlayer(){
     clearTimeout(rt);
     rt = setTimeout(()=>{
       if(layout() && cur>=0){
-        if(transOn){ transOn = false; }
-        const d = sceneData(cur);
-        renderer.upload('from', d); renderer.upload('to', d);
+        transOn = false; showLabels(true);
+        const t = sceneTime(), r = layScene(scenes[cur].d, cols, rows, t.k, t.s);
+        renderer.upload('from', r.data); renderer.upload('to', r.data);
+        setLabels(r.labels); mode = 1; liveAt = clock;
       }
     }, 120);
   });
